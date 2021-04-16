@@ -1,0 +1,271 @@
+  
+#![enable(implicit_some)]
+Container(
+    transform: (
+        id: "background",
+        anchor: Middle,
+        stretch: XY( x_margin: 0., y_margin: 0., keep_aspect_ratio: false),
+        width: 0.,
+        height: 0.,
+    ),
+    background: SolidColor(0.0, 0.0, 0.0, 0.0),
+    children: [
+        Container(
+            transform: (
+                id: "port_info",
+                anchor: TopLeft,
+                pivot: TopLeft,
+                x: 10.,
+                y: -118.,
+                z: 0.,
+                width: 200.,
+                height: 400.,
+            ),
+            background:
+                NineSlice(
+                        x_start: 0,
+                        y_start: 0,
+                        width: 64,
+                        height: 64,
+                        left_dist: 8,
+                        right_dist: 8,
+                        top_dist: 8,
+                        bottom_dist: 8,
+                        tex: File("texture/panel.png", ("IMAGE", ())),
+                        texture_dimensions: (64,64),
+                ),
+            children: [
+                 Label(
+                    transform: (
+                        id: "port_info_name",
+                        x: 0.,
+                        y: -12.,
+                        z: 1.,
+                        width: 200.,
+                        height: 25.,
+                        tab_order: 0,
+                        anchor: TopLeft,
+                        pivot: TopLeft,
+                        opaque: false,
+                    ),
+                    text: (
+                        text: "",
+                        font: File("font/square.ttf", ("TTF", ())),
+                        font_size: 20.,
+                        color: (1.0, 1.0, 1.0, 1.0),
+                    )
+                ),
+            ]
+        ),
+
+
+        Container(
+            
+            transform: (
+                id: "time",
+                anchor: TopRight,
+                pivot: TopRight,
+                x: -10.,
+                y: -10,
+                z: 0.,
+                stretch: XY( x_margin: 0., y_margin: 0., keep_aspect_ratio: false),
+                width: 0.,
+                height: 0.,
+            ),
+            children: [
+                Image(
+                    transform: (
+                        id: "port_info_panel",
+                        x: 0.,
+                        y: 0.,
+                        z: 0.,
+                        width: 150.,
+                        height: 60.,
+                        tab_order: 1,
+                        anchor: TopRight,
+                        pivot: TopRight,
+                        mouse_reactive: false,
+                    ),
+                    image: NineSlice(
+                        x_start: 4,
+                        y_start: 4,
+                        width: 56,
+                        height: 56,
+                        left_dist: 4,
+                        right_dist: 4,
+                        top_dist: 4,
+                        bottom_dist: 4,
+                        tex: File("texture/panel.png", ("IMAGE", ())),
+                        texture_dimensions: (64,64),
+                    ),
+                ),
+                Label(
+                    transform: (
+                        id: "current_time",
+                        x: -8.,
+                        y: -4.,
+                        z: 1.,
+                        width: 200.,
+                        height: 20.,
+                        tab_order: 0,
+                        anchor: TopRight,
+                        pivot: TopRight,
+                        opaque: false,
+                    ),
+                    text: (
+                        text: "10th November, 1680",
+                        font: File("font/square.ttf", ("TTF", ())),
+                        font_size: 15.,
+                        color: (1.0, 1.0, 1.0, 1.0),
+                        align: MiddleRight,
+                    )
+                ),
+                Button(
+                    transform: (
+                        id: "pause_button",
+                        x: -8.,
+                        y: -24.,
+                        z: 1.,
+                        width: 24.,
+                        height: 24.,
+                        tab_order: 0,
+                        anchor: TopRight,
+                        pivot: TopRight,
+                        mouse_reactive: true,
+                    ),
+                    button: (
+                        text: "",
+                        font_size: 10,
+                        normal_text_color: (1.0, 1.0, 1.0, 1.0),
+                        normal_image: Texture(File("texture/pause_button.png", ("IMAGE", ()))),
+                    )
+                ),
+
+                Button(
+                    transform: (
+                        id: "play_button",
+                        x: -8.,
+                        y: -24.,
+                        z: -1.,
+                        width: 24.,
+                        height: 24.,
+                        tab_order: 0,
+                        anchor: TopRight,
+                        pivot: TopRight,
+                        mouse_reactive: true,
+                    ),
+                    button: (
+                        text: "",
+                        font_size: 10,
+                        normal_text_color: (1.0, 1.0, 1.0, 1.0),
+                        normal_image: Texture(File("texture/play_button.png", ("IMAGE", ()))),
+                    )
+                ),
+
+                Button(
+                    transform: (
+                        id: "increase_speed_button",
+                        x: -36.,
+                        y: -24.,
+                        z: 1.,
+                        width: 24.,
+                        height: 24.,
+                        tab_order: 0,
+                        anchor: TopRight,
+                        pivot: TopRight,
+                        mouse_reactive: true,
+                    ),
+                    button: (
+                        text: "",
+                        font_size: 10,
+                        normal_text_color: (1.0, 1.0, 1.0, 1.0),
+                        normal_image: Texture(File("texture/plus_button.png", ("IMAGE", ()))),
+                    )
+                ),
+
+                Button(
+                    transform: (
+                        id: "decrease_speed_button",
+                        x: -64.,
+                        y: -24.,
+                        z: 1.,
+                        width: 24.,
+                        height: 24.,
+                        tab_order: 0,
+                        anchor: TopRight,
+                        pivot: TopRight,
+                        mouse_reactive: true,
+                    ),
+                    button: (
+                        text: "",
+                        font_size: 10,
+                        normal_text_color: (1.0, 1.0, 1.0, 1.0),
+                        normal_image: Texture(File("texture/minus_button.png", ("IMAGE", ()))),
+                    )
+                ),
+            ]
+        ),
+
+        Container(
+            transform: (
+                id: "player_status",
+                anchor: TopLeft,
+                pivot: TopLeft,
+                x: 10.,
+                y: -10.,
+                z: 0.,
+                stretch: XY( x_margin: 0., y_margin: 0., keep_aspect_ratio: false),
+                width: 0.,
+                height: 0.,
+            ),
+            children: [
+                Image(
+                    transform: (
+                        id: "player_status_panel",
+                        x: 0.,
+                        y: 0.,
+                        z: 0.,
+                        width: 200.,
+                        height:  100.,
+                        tab_order: 1,
+                        anchor: TopLeft,
+                        pivot: TopLeft,
+                        mouse_reactive: false,
+                    ),
+                    image: NineSlice(
+                        x_start: 0,
+                        y_start: 0,
+                        width: 64,
+                        height: 64,
+                        left_dist: 8,
+                        right_dist: 8,
+                        top_dist: 8,
+                        bottom_dist: 8,
+                        tex: File("texture/panel.png", ("IMAGE", ())),
+                        texture_dimensions: (64,64),
+                    ),
+                ),
+                Label(
+                    transform: (
+                        id: "player_money",
+                        x: 0.,
+                        y: -12.,
+                        z: 1.,
+                        width: 200.,
+                        height: 25.,
+                        tab_order: 0,
+                        anchor: TopLeft,
+                        pivot: TopLeft,
+                        opaque: false,
+                    ),
+                    text: (
+                        text: "£0",
+                        font: File("font/square.ttf", ("TTF", ())),
+                        font_size: 20.,
+                        color: (1.0, 1.0, 1.0, 1.0),
+                    )
+                ),
+            ]
+        ),
+    ],
+)
