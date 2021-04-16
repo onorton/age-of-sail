@@ -9,4 +9,4 @@ Do things such as:
 - Fulfil contracts
 - Evade pirates
 
-This is mostly a repo used for testing out the [https://github.com/amethyst/amethyst](amethyst) engine. Not much more will probably come from this.
+This is mostly a repo used for testing out the [amethyst](https://github.com/amethyst/amethyst) engine. Not much more will probably come from this.
