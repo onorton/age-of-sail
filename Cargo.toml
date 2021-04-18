@@ -11,6 +11,7 @@ rand = "0.8.3"
 chrono = "0.4.19"
 serde = "1.0.123"
 amethyst_test = "0.15"
+test-case = "1.1.0"
 
 [dependencies.amethyst]
 version = "0.15"

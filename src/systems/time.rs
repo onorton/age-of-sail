@@ -48,7 +48,7 @@ mod tests {
     use amethyst_test::prelude::*;
 
     #[test]
-    fn accepting_contract_sends_ui_update_event() -> Result<()> {
+    fn text_for_current_time_is_set() -> Result<()> {
         AmethystApplication::ui_base::<StringBindings>()
             .with_system(UpdateTimeSystem, "update_time", &[])
             .with_effect(|world| {

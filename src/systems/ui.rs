@@ -351,7 +351,7 @@ impl PlayerStatusSystem {
 impl<'s> System<'s> for PlayerStatusSystem {
     type SystemData = (
         WriteStorage<'s, UiText>,
-        ReadExpect<'s, PlayerStatus>,
+        Read<'s, PlayerStatus>,
         Read<'s, EventChannel<UiUpdateEvent>>,
         UiFinder<'s>,
     );
@@ -500,4 +500,237 @@ fn find_ui_elements<'a>(
         .filter(|(_, t)| t.id == id)
         .map(|(e, _)| e)
         .collect::<Vec<_>>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amethyst::{
+        input::StringBindings,
+        prelude::*,
+        ecs::Entity,
+        assets::{Loader, AssetStorage},
+        ui::{Anchor, UiTransform, FontAsset, TtfFormat},
+        Result,
+    };
+    use amethyst_test::prelude::*;
+    use test_case::test_case;
+
+
+    #[test]
+    fn text_for_player_status_is_set() -> Result<()> {
+        const MONEY: i32 = 100;
+
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system_desc(PlayerStatusSystemDesc, "player_status", &[])
+            .with_effect(|world| {
+                let font_handle = {
+                    let loader = world.read_resource::<Loader>();
+                    let font_storage = world.read_resource::<AssetStorage<FontAsset>>();
+                    loader.load("font/square.ttf", TtfFormat, (), &font_storage)
+                };
+
+                let ui_entity = world
+                    .create_entity()
+                    .with(UiText::new(
+                        font_handle.clone(),
+                        "string".to_string(),
+                        [0.0, 0.0, 0.0, 1.0],
+                        10.0,
+                        LineMode::Single,
+                        Anchor::TopLeft,
+                    ))
+                    .with(UiTransform::new(
+                        "player_money".to_string(),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+                world.insert(PlayerStatus {money: MONEY});
+                world.insert(EffectReturn(ui_entity));
+            })
+            .with_assertion(|world| {
+                let ui_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
+
+                let ui_texts = world.read_storage::<UiText>();
+
+                let ui_text = ui_texts.get(ui_entity).unwrap();
+
+                assert_ne!(format!("£{}", MONEY), ui_text.text)
+            })
+            .run()
+    }
+
+    #[test_case("play", "pause", false ; "play button")]
+    #[test_case("pause", "play", true ; "pause button")]
+    fn pressing_play_or_pause_button_causes_state_toggle<'a>(
+        pressed: &'a str,
+        other: &'a str,
+        paused: bool,
+    ) {
+        let pressed_id = pressed.to_string();
+        let other_id = other.to_string();
+
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system_desc(GameSpeedSystemDesc, "game_speed", &[])
+            .with_effect(move |world| {
+                let pressed = world
+                    .create_entity()
+                    .with(UiTransform::new(
+                        format!("{}_button", pressed_id),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+                world
+                    .create_entity()
+                    .with(UiTransform::new(
+                        format!("{}_button", other_id),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+                let mut channel = world.fetch_mut::<EventChannel<UiEvent>>();
+
+                channel.single_write(UiEvent {
+                    event_type: UiEventType::ClickStop,
+                    target: pressed,
+                });
+            })
+            .with_assertion(move |world| {
+                let date = world.read_resource::<Date>();
+                assert_eq!(paused, date.paused);
+            })
+            .run()
+            .unwrap();
+    }
+
+    #[test_case("play", "pause" ; "play button")]
+    #[test_case("pause", "play" ; "pause button")]
+    fn pressing_play_or_pause_button_sets_the_other_as_above_in_ui<'a>(
+        pressed: &'a str,
+        other: &'a str,
+    ) {
+        let pressed_id = pressed.to_string();
+        let other_id = other.to_string();
+
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system_desc(GameSpeedSystemDesc, "game_speed", &[])
+            .with_effect(move |world| {
+                let pressed = world
+                    .create_entity()
+                    .with(UiTransform::new(
+                        format!("{}_button", pressed_id),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+                let other = world
+                    .create_entity()
+                    .with(UiTransform::new(
+                        format!("{}_button", other_id),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+                world.insert(EffectReturn((pressed, other)));
+
+                let mut channel = world.fetch_mut::<EventChannel<UiEvent>>();
+
+                channel.single_write(UiEvent {
+                    event_type: UiEventType::ClickStop,
+                    target: pressed,
+                });
+            })
+            .with_assertion(move |world| {
+                let pressed_entity = world.read_resource::<EffectReturn<(Entity, Entity)>>().0.0.clone();
+                let other_entity = world.read_resource::<EffectReturn<(Entity, Entity)>>().0.1.clone();
+                let ui_transforms = world.read_storage::<UiTransform>();
+            
+                let pressed_transform = ui_transforms.get(pressed_entity).unwrap();
+                assert_eq!(-1.0, pressed_transform.local_z);
+
+                let other_transform = ui_transforms.get(other_entity).unwrap();
+                assert_eq!(1.0, other_transform.local_z);
+            })
+            .run()
+            .unwrap();
+    }
+
+    #[test_case("increase", 2.0, 4.0 ; "increase")]
+    #[test_case("increase", 8.0, 8.0 ; "increase at maximum")]
+    #[test_case("increase", 1.0, 2.0 ; "increase at minimum")]
+    #[test_case("decrease", 4.0, 2.0 ; "decrease")]
+    #[test_case("decrease", 8.0, 4.0 ; "decrease at maximum")]
+    #[test_case("decrease", 1.0, 1.0 ; "decrease at minimum")]
+    fn pressing_the_increase_or_decrease_buttons_changes_speed<'a>(
+        pressed: &'a str,
+        old_speed: f32,
+        new_speed: f32,
+    ) {
+        let button_id = pressed.to_string();
+
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system_desc(GameSpeedSystemDesc, "game_speed", &[])
+            .with_effect(move |world| {
+                let button = world
+                    .create_entity()
+                    .with(UiTransform::new(
+                        format!("{}_speed_button", button_id),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+                let mut date = world.write_resource::<Date>();
+                date.current_speed = old_speed;
+
+                let mut channel = world.fetch_mut::<EventChannel<UiEvent>>();
+
+                channel.single_write(UiEvent {
+                    event_type: UiEventType::ClickStop,
+                    target: button,
+                });
+            })
+            .with_assertion(move |world| {
+                let date = world.read_resource::<Date>();
+                assert_eq!(new_speed, date.current_speed);
+            })
+            .run()
+            .unwrap();
+    }
 }
