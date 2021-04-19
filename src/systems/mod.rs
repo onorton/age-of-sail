@@ -1,5 +1,5 @@
 pub use self::ai::AiSystem;
-pub use self::collision::CollisionSystem;
+pub use self::collision::{CollisionSystem, DestroySystemDesc};
 pub use self::contract::{AcceptContractSystemDesc, FulfillContractSystem};
 pub use self::move_ships::{
     ChaseSystem, DockingSystem, MoveShipsSystem, PatrolSystem, PlotCourseSystem,

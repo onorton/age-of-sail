@@ -5,3 +5,8 @@ pub enum UiUpdateEvent {
     Target(Entity),
     PlayerStatus,
 }
+
+pub struct CollisionEvent {
+    pub entity: Entity,
+    pub other_entity: Entity,
+}
