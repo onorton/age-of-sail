@@ -57,10 +57,31 @@ Container(
                 ),
             ]
         ),
+      
+        Label(
+           transform: (
+               id: "notification",
+               x: 220.,
+               y: -10.,
+               z: 1.,
+               width: 400.,
+               height: 50.,
+               tab_order: 0,
+               anchor: TopLeft,
+               pivot: TopLeft,
+               opaque: false,
+           ),
+           text: (
+               text: "Hello, hello, A really, really long notification goes here",
+               font: File("font/square.ttf", ("TTF", ())),
+               font_size: 15.,
+               color: (1.0, 1.0, 1.0, 1.0),
+               line_mode: Wrap,
+           )
+        ),
 
 
-        Container(
-            
+        Container(    
             transform: (
                 id: "time",
                 anchor: TopRight,

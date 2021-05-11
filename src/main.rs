@@ -12,8 +12,9 @@ use amethyst::{
 };
 use systems::{
     AiSystem, ChaseSystem, CollisionSystem, DestroySystemDesc, DockingSystem,
-    FulfillContractSystem, GameSpeedSystemDesc, PatrolSystem, PlayerStatusSystemDesc,
-    PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem, UpdateTimeSystem,
+    FulfillContractSystem, GameSpeedSystemDesc, NotificationSystem, PatrolSystem,
+    PlayerStatusSystemDesc, PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem,
+    UpdateTimeSystem,
 };
 
 mod age_of_sail;
@@ -60,6 +61,7 @@ fn main() -> amethyst::Result<()> {
         .with(CollisionSystem, "collision", &[])
         .with_system_desc(PlayerStatusSystemDesc::default(), "ui_player_status", &[])
         .with_system_desc(GameSpeedSystemDesc::default(), "ui_game_speed", &[])
+        .with(NotificationSystem::default(), "ui_notification_system", &[])
         .with_system_desc(AcceptContractSystemDesc::default(), "accept_contract", &[])
         .with_system_desc(DestroySystemDesc::default(), "destroy", &[])
         .with(FulfillContractSystem, "fulfill_contract", &[])

@@ -6,7 +6,9 @@ pub use self::move_ships::{
 };
 pub use self::select::{SelectPortSystem, SelectSystem};
 pub use self::time::UpdateTimeSystem;
-pub use self::ui::{GameSpeedSystemDesc, PlayerStatusSystemDesc, PortPanelSystemDesc};
+pub use self::ui::{
+    GameSpeedSystemDesc, NotificationSystem, PlayerStatusSystemDesc, PortPanelSystemDesc,
+};
 
 mod ai;
 mod collision;

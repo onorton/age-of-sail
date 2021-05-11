@@ -1,6 +1,6 @@
 use ::amethyst::core::SystemDesc;
 use amethyst::{
-    core::{Parent, RunNowDesc},
+    core::{Parent, RunNowDesc, timing::Time},
     ecs::{
         Entities, Entity, Join, Read, ReadExpect, ReadStorage, System, SystemData, World, Write,
         WriteStorage,
@@ -11,6 +11,7 @@ use amethyst::{
         UiTransform,
     },
 };
+use std::collections::VecDeque;
 
 use crate::{
     age_of_sail::{Date, PlayerStatus, UiAssets},
@@ -478,6 +479,47 @@ impl<'a, 'b> SystemDesc<'a, 'b, GameSpeedSystem> for GameSpeedSystemDesc {
     }
 }
 
+
+#[derive(Default)]
+pub struct NotificationSystem {
+    time_passed: Option<f32>,
+}
+
+impl<'s> System<'s> for NotificationSystem {
+    type SystemData = (
+        WriteStorage<'s, UiText>,
+        Write<'s, VecDeque<String>>, 
+        Read<'s, Time>,
+        UiFinder<'s>, 
+    );
+
+    fn run(&mut self, (mut ui_texts, mut notifications, time, finder): Self::SystemData) {
+         
+        
+        let mut new_message = "".to_string();
+        if let Some(t) = self.time_passed {
+             let new_t = t + time.delta_seconds();
+             if new_t > 5.0 {
+                 new_message = notifications.pop_front().unwrap_or("".to_string());
+                 self.time_passed = None;
+             } else {
+                self.time_passed.replace(new_t);
+             }
+         } else {
+            new_message = notifications.pop_front().unwrap_or("".to_string());
+            if new_message != "".to_string() {
+                self.time_passed.replace(0.0);
+            }
+        }
+
+        if let Some(notification) = finder.find("notification") {
+            if let Some(ui_text) = ui_texts.get_mut(notification) {
+                ui_text.text = new_message;
+            }
+        }
+    }
+}
+
 fn find_ui_element<'a>(
     entities: &Entities<'a>,
     ui_transforms: &WriteStorage<'a, UiTransform>,
@@ -733,4 +775,5 @@ mod tests {
             .run()
             .unwrap();
     }
+
 }
