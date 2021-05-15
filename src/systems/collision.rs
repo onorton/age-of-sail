@@ -8,7 +8,7 @@ use amethyst::{
 };
 
 use crate::{
-    age_of_sail::point_in_rect,
+    age_of_sail::{point_in_rect, Notifications},
     components::{bounding_box::BoundingBox, Pirate, Ship},
     event::CollisionEvent,
 };
@@ -61,10 +61,11 @@ impl<'s> System<'s> for DestroySystem {
         Entities<'s>,
         ReadStorage<'s, Ship>,
         ReadStorage<'s, Pirate>,
+        Write<'s, Notifications>,
         Read<'s, EventChannel<CollisionEvent>>,
     );
 
-    fn run(&mut self, (entities, ships, pirates, channel): Self::SystemData) {
+    fn run(&mut self, (entities, ships, pirates, mut notifications, channel): Self::SystemData) {
         let mut entities_to_destroy = HashSet::new();
 
         for collision in channel.read(&mut self.reader_id) {
@@ -83,6 +84,7 @@ impl<'s> System<'s> for DestroySystem {
 
         for entity in entities_to_destroy {
             entities.delete(entity).unwrap();
+            notifications.push_back("Ship destroyed by pirate".to_string());
         }
     }
 }
@@ -363,6 +365,43 @@ mod tests {
                 world.maintain();
                 let entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
                 assert!(!world.entities().is_alive(entity));
+            })
+            .run()
+    }
+
+    #[test]
+    fn notification_sent_when_pirate_destroys_ship() -> Result<()> {
+        AmethystApplication::blank()
+            .with_system_desc(DestroySystemDesc, "destroy", &[])
+            .with_effect(|world| {
+                let pirate = world.create_entity().with(Pirate).build();
+
+                let mut entity_transform = Transform::default();
+                entity_transform.set_translation_xyz(2.0, 3.0, 0.0);
+
+                let entity = world.create_entity().with(Ship { base_speed: 1.0 }).build();
+
+                world.insert(EffectReturn(entity));
+
+                let mut channel = world.fetch_mut::<EventChannel<CollisionEvent>>();
+                channel.single_write(CollisionEvent {
+                    entity: pirate,
+                    other_entity: entity,
+                });
+
+                channel.single_write(CollisionEvent {
+                    entity: entity,
+                    other_entity: pirate,
+                });
+            })
+            .with_assertion(|world| {
+                let notifications = world.read_resource::<Notifications>().clone();
+                assert_eq!(1, notifications.len(), "Number of notifications");
+                assert_eq!(
+                    "Ship destroyed by pirate",
+                    notifications.front().unwrap(),
+                    "Notification"
+                );
             })
             .run()
     }
