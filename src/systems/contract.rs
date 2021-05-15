@@ -1,3 +1,8 @@
+use crate::{
+    age_of_sail::{Notifications, PlayerStatus, DISTANCE_THRESHOLD},
+    components::{Cargo, Contract, OwnedBy, Port, Ship},
+    event::UiUpdateEvent,
+};
 use amethyst::{
     core::{alga::linear::EuclideanSpace, math::Point2, Transform},
     ecs::{Entities, Join, Read, ReadStorage, System, SystemData, Write, WriteStorage},
@@ -6,12 +11,7 @@ use amethyst::{
     shrev::{EventChannel, ReaderId},
     ui::{UiEvent, UiEventType},
 };
-
-use crate::{
-    age_of_sail::{Notifications, PlayerStatus, DISTANCE_THRESHOLD},
-    components::{Cargo, Contract, OwnedBy, Ship},
-    event::UiUpdateEvent,
-};
+use itertools::Itertools;
 
 pub struct AcceptContractSystem {
     reader_id: ReaderId<UiEvent>,
@@ -91,6 +91,7 @@ impl<'s> System<'s> for FulfillContractSystem {
         ReadStorage<'s, Ship>,
         ReadStorage<'s, OwnedBy>,
         ReadStorage<'s, Transform>,
+        ReadStorage<'s, Port>,
         WriteStorage<'s, Cargo>,
         Write<'s, Notifications>,
         Write<'s, PlayerStatus>,
@@ -105,6 +106,7 @@ impl<'s> System<'s> for FulfillContractSystem {
             ships,
             owned_bys,
             locals,
+            ports,
             mut cargos,
             mut notifications,
             mut player_status,
@@ -141,6 +143,14 @@ impl<'s> System<'s> for FulfillContractSystem {
 
             if let Some(ship) = suitable_ship {
                 let cargo = cargos.get_mut(ship).unwrap();
+                let items_notification = contract
+                    .goods_required
+                    .iter()
+                    .sorted_by_key(|(&item, _)| item)
+                    .map(|(item, amount)| format!("{} {}", amount, item))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
                 for (item, amount) in &contract.goods_required {
                     *cargo.items.get_mut(&item).unwrap() -= amount;
                 }
@@ -148,7 +158,12 @@ impl<'s> System<'s> for FulfillContractSystem {
                 player_status.money += contract.payment as i32;
                 channel.single_write(UiUpdateEvent::PlayerStatus);
                 entities.delete(e).unwrap();
-                notifications.push_back(format!("Completed contract for £{}", contract.payment));
+                notifications.push_back(format!(
+                    "Completed contract for £{} at {}. {} removed from cargo.",
+                    contract.payment,
+                    ports.get(contract.destination).unwrap().name,
+                    items_notification
+                ));
             }
         }
     }
@@ -357,6 +372,9 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
+                    .with(Port {
+                        name: "".to_string(),
+                    })
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -410,6 +428,9 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
+                    .with(Port {
+                        name: "".to_string(),
+                    })
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -467,6 +488,9 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
+                    .with(Port {
+                        name: "".to_string(),
+                    })
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -517,6 +541,7 @@ mod tests {
     #[test]
     fn fulfilling_sends_notification() -> Result<()> {
         const PAYMENT: u32 = 100;
+        const PORT: &str = "London";
         let goods_required: HashMap<ItemType, u32> = [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
             .iter()
             .cloned()
@@ -527,6 +552,9 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
+                    .with(Port {
+                        name: PORT.to_string(),
+                    })
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -555,7 +583,10 @@ mod tests {
                 let notifications = world.read_resource::<Notifications>().clone();
                 assert_eq!(1, notifications.len(), "Number of notifications");
                 assert_eq!(
-                    &format!("Completed contract for £{}", PAYMENT),
+                    &format!(
+                        "Completed contract for £{} at {}. 5 Rum, 10 Sugar removed from cargo.",
+                        PAYMENT, PORT
+                    ),
                     notifications.front().unwrap(),
                     "Notification"
                 );

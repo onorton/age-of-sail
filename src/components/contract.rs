@@ -10,10 +10,10 @@ pub struct Contract {
     pub goods_required: HashMap<ItemType, u32>,
 }
 
-#[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy, Debug)]
 pub enum ItemType {
-    Sugar,
     Rum,
+    Sugar,
     Whiskey,
 }
 
