@@ -8,7 +8,7 @@ use amethyst::{
 };
 
 use crate::{
-    age_of_sail::{PlayerStatus, DISTANCE_THRESHOLD},
+    age_of_sail::{Notifications, PlayerStatus, DISTANCE_THRESHOLD},
     components::{Cargo, Contract, OwnedBy, Ship},
     event::UiUpdateEvent,
 };
@@ -92,13 +92,24 @@ impl<'s> System<'s> for FulfillContractSystem {
         ReadStorage<'s, OwnedBy>,
         ReadStorage<'s, Transform>,
         WriteStorage<'s, Cargo>,
+        Write<'s, Notifications>,
         Write<'s, PlayerStatus>,
         Write<'s, EventChannel<UiUpdateEvent>>,
     );
 
     fn run(
         &mut self,
-        (entities, contracts, ships, owned_bys, locals, mut cargos, mut player_status, mut channel): Self::SystemData,
+        (
+            entities,
+            contracts,
+            ships,
+            owned_bys,
+            locals,
+            mut cargos,
+            mut notifications,
+            mut player_status,
+            mut channel,
+        ): Self::SystemData,
     ) {
         // for each active contract (not owned by a port)
         for (e, contract, _) in (&entities, &contracts, !&owned_bys).join() {
@@ -137,6 +148,7 @@ impl<'s> System<'s> for FulfillContractSystem {
                 player_status.money += contract.payment as i32;
                 channel.single_write(UiUpdateEvent::PlayerStatus);
                 entities.delete(e).unwrap();
+                notifications.push_back(format!("Completed contract for £{}", contract.payment));
             }
         }
     }
@@ -498,6 +510,55 @@ mod tests {
                         format!("Number of {} in cargo", k)
                     );
                 }
+            })
+            .run()
+    }
+
+    #[test]
+    fn fulfilling_sends_notification() -> Result<()> {
+        const PAYMENT: u32 = 100;
+        let goods_required: HashMap<ItemType, u32> = [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+            .iter()
+            .cloned()
+            .collect();
+
+        AmethystApplication::blank()
+            .with_system(FulfillContractSystem, "fulfill_contract", &[])
+            .with_effect(move |world| {
+                let port = world
+                    .create_entity()
+                    .with(Cargo {
+                        items: HashMap::new(),
+                    })
+                    .with(Transform::default())
+                    .build();
+
+                world
+                    .create_entity()
+                    .with(Ship { base_speed: 1.0 })
+                    .with(Cargo {
+                        items: goods_required.clone(),
+                    })
+                    .with(Transform::default())
+                    .build();
+
+                world
+                    .create_entity()
+                    .with(Contract {
+                        payment: PAYMENT,
+                        destination: port,
+                        goods_required: goods_required.clone(),
+                    })
+                    .build();
+            })
+            .with_assertion(move |world| {
+                let notifications = world.read_resource::<Notifications>().clone();
+                assert_eq!(1, notifications.len(), "Number of notifications");
+                assert_eq!(
+                    &format!("Completed contract for £{}", PAYMENT),
+                    notifications.front().unwrap(),
+                    "Notification"
+                );
             })
             .run()
     }

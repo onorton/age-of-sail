@@ -1,4 +1,7 @@
-use std::{collections::HashMap, ops::Add};
+use std::{
+    collections::{HashMap, VecDeque},
+    ops::Add,
+};
 
 use crate::components::{
     bounding_box::BoundingBox, Action, Ai, AiState, Cargo, Contract, Controllable, ItemType,
@@ -19,6 +22,8 @@ use rand::{seq::SliceRandom, thread_rng, Rng};
 pub const WORLD_WIDTH: f32 = 400.0;
 pub const WORLD_HEIGHT: f32 = 300.0;
 pub const DISTANCE_THRESHOLD: f32 = 0.15;
+
+pub type Notifications = VecDeque<String>;
 
 pub struct MainState;
 

@@ -11,13 +11,14 @@ use amethyst::{
         UiTransform,
     },
 };
-use std::collections::VecDeque;
 
 use crate::{
-    age_of_sail::{Date, PlayerStatus, UiAssets},
+    age_of_sail::{Date, PlayerStatus, UiAssets, Notifications},
     components::{Contract, OwnedBy},
 };
 use crate::{components::Port, event::UiUpdateEvent};
+
+const NOTIFICATION_TIME: f32 = 5.0;
 
 pub struct PortPanelSystem {
     reader_id: ReaderId<UiUpdateEvent>,
@@ -488,33 +489,38 @@ pub struct NotificationSystem {
 impl<'s> System<'s> for NotificationSystem {
     type SystemData = (
         WriteStorage<'s, UiText>,
-        Write<'s, VecDeque<String>>, 
+        Write<'s, Notifications>, 
         Read<'s, Time>,
         UiFinder<'s>, 
     );
 
     fn run(&mut self, (mut ui_texts, mut notifications, time, finder): Self::SystemData) {
-         
-        
+        let mut replace_message = true;
         let mut new_message = "".to_string();
         if let Some(t) = self.time_passed {
-             let new_t = t + time.delta_seconds();
-             if new_t > 5.0 {
+             let new_t = t + time.delta_real_seconds();
+             if new_t > NOTIFICATION_TIME {
                  new_message = notifications.pop_front().unwrap_or("".to_string());
                  self.time_passed = None;
+             } else if notifications.len() > 0 {
+                new_message = notifications.pop_front().unwrap();
              } else {
                 self.time_passed.replace(new_t);
+                replace_message = false;
              }
          } else {
             new_message = notifications.pop_front().unwrap_or("".to_string());
+        }
+
+        if replace_message {
             if new_message != "".to_string() {
                 self.time_passed.replace(0.0);
             }
-        }
 
-        if let Some(notification) = finder.find("notification") {
-            if let Some(ui_text) = ui_texts.get_mut(notification) {
-                ui_text.text = new_message;
+            if let Some(notification) = finder.find("notification") {
+                if let Some(ui_text) = ui_texts.get_mut(notification) {
+                    ui_text.text = new_message;
+                }
             }
         }
     }
@@ -775,5 +781,202 @@ mod tests {
             .run()
             .unwrap();
     }
+    
+    #[test]
+    fn notification_gets_replaced_if_time_elapsed_is_five_seconds_or_more() {
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system(NotificationSystem{time_passed: Some(5.0)}, "notifications", &[])
+            .with_effect(move |world| {
+                let font_handle = {
+                    let loader = world.read_resource::<Loader>();
+                    let font_storage = world.read_resource::<AssetStorage<FontAsset>>();
+                    loader.load("font/square.ttf", TtfFormat, (), &font_storage)
+                };
 
+                let notification = world
+                    .create_entity()
+                    .with(UiText::new(
+                        font_handle.clone(),
+                        "a notification".to_string(),
+                        [0.0, 0.0, 0.0, 1.0],
+                        10.0,
+                        LineMode::Single,
+                        Anchor::TopLeft,
+                    ))
+                    .with(UiTransform::new(
+                        "notification".to_string(),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+
+                world.insert(EffectReturn(notification));
+
+            })
+            .with_assertion(move |world| {
+                let notification = world.read_resource::<EffectReturn<Entity>>().0.clone();
+                let ui_texts = world.read_storage::<UiText>();
+
+                let ui_text = ui_texts.get(notification).unwrap();
+                assert_eq!("".to_string(), ui_text.text, "Notification");
+            })
+            .run()
+            .unwrap();
+    }
+
+    #[test]
+    fn notification_gets_replaced_immediately() {
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system(NotificationSystem{time_passed: Some(1.0)}, "notifications", &[])
+            .with_effect(move |world| {
+                let font_handle = {
+                    let loader = world.read_resource::<Loader>();
+                    let font_storage = world.read_resource::<AssetStorage<FontAsset>>();
+                    loader.load("font/square.ttf", TtfFormat, (), &font_storage)
+                };
+
+                let notification = world
+                    .create_entity()
+                    .with(UiText::new(
+                        font_handle.clone(),
+                        "a notification".to_string(),
+                        [0.0, 0.0, 0.0, 1.0],
+                        10.0,
+                        LineMode::Single,
+                        Anchor::TopLeft,
+                    ))
+                    .with(UiTransform::new(
+                        "notification".to_string(),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+
+                world.insert(EffectReturn(notification));
+
+                let mut notifications = world.write_resource::<Notifications>();
+                notifications.push_back("notification in queue".to_string());
+            })
+            .with_assertion(move |world| {
+                let notification = world.read_resource::<EffectReturn<Entity>>().0.clone();
+                let ui_texts = world.read_storage::<UiText>();
+
+                let ui_text = ui_texts.get(notification).unwrap();
+                assert_eq!("notification in queue".to_string(), ui_text.text, "Notification");
+            })
+            .run()
+            .unwrap();
+    }
+
+    #[test]
+    fn notification_gets_replaced_with_front_of_queue() {
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system(NotificationSystem{time_passed: Some(1.0)}, "notifications", &[])
+            .with_effect(move |world| {
+                let font_handle = {
+                    let loader = world.read_resource::<Loader>();
+                    let font_storage = world.read_resource::<AssetStorage<FontAsset>>();
+                    loader.load("font/square.ttf", TtfFormat, (), &font_storage)
+                };
+
+                let notification = world
+                    .create_entity()
+                    .with(UiText::new(
+                        font_handle.clone(),
+                        "a notification".to_string(),
+                        [0.0, 0.0, 0.0, 1.0],
+                        10.0,
+                        LineMode::Single,
+                        Anchor::TopLeft,
+                    ))
+                    .with(UiTransform::new(
+                        "notification".to_string(),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+                world.insert(EffectReturn(notification));
+                
+                let mut notifications = world.write_resource::<Notifications>();
+                notifications.push_back("notification in front of queue".to_string());
+                notifications.push_back("notification in back of queue".to_string());
+            })
+            .with_assertion(move |world| {
+                let notification = world.read_resource::<EffectReturn<Entity>>().0.clone();
+                let ui_texts = world.read_storage::<UiText>();
+
+                let ui_text = ui_texts.get(notification).unwrap();
+                assert_eq!("notification in front of queue".to_string(), ui_text.text, "Notification");
+            })
+            .run()
+            .unwrap();
+    }
+
+    #[test]
+    fn notification_gets_replaced_with_front_of_queue_if_no_existing_notification() {
+        AmethystApplication::ui_base::<StringBindings>()
+            .with_system(NotificationSystem{time_passed: None}, "notifications", &[])
+            .with_effect(move |world| {
+                let font_handle = {
+                    let loader = world.read_resource::<Loader>();
+                    let font_storage = world.read_resource::<AssetStorage<FontAsset>>();
+                    loader.load("font/square.ttf", TtfFormat, (), &font_storage)
+                };
+
+                let notification = world
+                    .create_entity()
+                    .with(UiText::new(
+                        font_handle.clone(),
+                        "".to_string(),
+                        [0.0, 0.0, 0.0, 1.0],
+                        10.0,
+                        LineMode::Single,
+                        Anchor::TopLeft,
+                    ))
+                    .with(UiTransform::new(
+                        "notification".to_string(),
+                        Anchor::TopLeft,
+                        Anchor::TopLeft,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ))
+                    .build();
+
+                world.insert(EffectReturn(notification));
+                
+                let mut notifications = world.write_resource::<Notifications>();
+                notifications.push_back("notification in front of queue".to_string());
+                notifications.push_back("notification in back of queue".to_string());
+            })
+            .with_assertion(move |world| {
+                let notification = world.read_resource::<EffectReturn<Entity>>().0.clone();
+                let ui_texts = world.read_storage::<UiText>();
+
+                let ui_text = ui_texts.get(notification).unwrap();
+                assert_eq!("notification in front of queue".to_string(), ui_text.text, "Notification");
+            })
+            .run()
+            .unwrap();
+    }
 }
