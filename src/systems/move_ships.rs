@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use itertools::Itertools;
 
 use amethyst::{
     core::{
@@ -7,14 +8,14 @@ use amethyst::{
         Time, Transform,
     },
     derive::SystemDesc,
-    ecs::{Entities, Join, Read, ReadExpect, ReadStorage, System, SystemData, WriteStorage},
+    ecs::{Entities, Join, Read, ReadExpect, Write, ReadStorage, System, SystemData, WriteStorage},
     input::{InputHandler, StringBindings, VirtualKeyCode},
     window::ScreenDimensions,
     winit::MouseButton,
 };
 
 use crate::{
-    age_of_sail::{point_mouse_to_world, DISTANCE_THRESHOLD},
+    age_of_sail::{Notifications, point_mouse_to_world, DISTANCE_THRESHOLD},
     components::{Action, Ai, Cargo, Controllable, Course, Patrol, Port, Selected, Ship},
 };
 
@@ -256,10 +257,11 @@ impl<'s> System<'s> for DockingSystem {
         ReadStorage<'s, Port>,
         WriteStorage<'s, Cargo>,
         WriteStorage<'s, Transform>,
+        Write<'s, Notifications>,
     );
 
-    fn run(&mut self, (entities, ships, ports, mut cargos, locals): Self::SystemData) {
-        for (p, _, port_local) in (&entities, &ports, &locals).join() {
+    fn run(&mut self, (entities, ships, ports, mut cargos, locals, mut notifications): Self::SystemData) {
+        for (p, port, port_local) in (&entities, &ports, &locals).join() {
             let port_location = Point2::new(port_local.translation().x, port_local.translation().y);
 
             // If a ship is nearby prepare to load ship
@@ -275,11 +277,27 @@ impl<'s> System<'s> for DockingSystem {
             if let Some(ship) = suitable_ship {
                 let port_cargo = cargos.get(p).unwrap().items.clone();
                 let ship_cargo = cargos.get_mut(ship).unwrap();
-                for (item, amount) in port_cargo {
-                    *ship_cargo.items.entry(item).or_insert(0) += amount;
+                for (item, amount) in &port_cargo {
+                    *ship_cargo.items.entry(*item).or_insert(0) += amount;
                 }
 
                 cargos.get_mut(p).unwrap().items.clear();
+                if !port_cargo.is_empty() {
+                    let items_notification = port_cargo
+                        .iter()
+                        .sorted_by_key(|(&item, _)| item)
+                        .map(|(item, amount)| format!("{} {}", amount, item))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    
+
+                    notifications.push_back(format!(
+                        "{} loaded onto ship at {}.",
+                        items_notification,
+                        port.name
+                    ));
+                }
+
             }
         }
     }
@@ -956,6 +974,55 @@ mod tests {
 
                 let ship_cargo = cargos.get(ship_entity).unwrap();
                 assert_eq!(expected_goods_on_ship, ship_cargo.items, "Cargon on ship");
+            })
+            .run()
+    }
+
+    #[test]
+    fn notification_sent_if_cargo_loaded() -> Result<()> {
+        const PORT: &str = "London";
+        let goods_in_port: HashMap<ItemType, u32> = [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+            .iter()
+            .cloned()
+            .collect();
+
+        AmethystApplication::blank()
+            .with_system(DockingSystem, "docking", &[])
+            .with_effect(move |world| {
+                world
+                    .create_entity()
+                    .with(Port { name: PORT.to_string() })
+                    .with(Cargo {
+                        items: goods_in_port.clone(),
+                    })
+                    .with(Transform::default())
+                    .build();
+
+                let mut ship_transform = Transform::default();
+                ship_transform.set_translation_xyz(0.0001, 0.0002, 0.0);
+
+                world
+                    .create_entity()
+                    .with(Ship { base_speed: 1.0 })
+                    .with(Cargo {
+                        items: HashMap::new(),
+                    })
+                    .with(ship_transform)
+                    .build();
+
+            })
+            .with_assertion(move |world| {
+                let notifications = world.read_resource::<Notifications>().clone();
+                assert_eq!(1, notifications.len(), "Number of notifications");
+                assert_eq!(
+                    &format!(
+                        "5 Rum, 10 Sugar loaded onto ship at {}.",
+                        PORT
+                    ),
+                    notifications.front().unwrap(),
+                    "Notification"
+                );
+
             })
             .run()
     }
