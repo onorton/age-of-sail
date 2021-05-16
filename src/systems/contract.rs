@@ -26,15 +26,25 @@ impl AcceptContractSystem {
 impl<'s> System<'s> for AcceptContractSystem {
     type SystemData = (
         ReadStorage<'s, Contract>,
+        ReadStorage<'s, Port>,
         WriteStorage<'s, OwnedBy>,
         WriteStorage<'s, Cargo>,
         Read<'s, EventChannel<UiEvent>>,
         Write<'s, EventChannel<UiUpdateEvent>>,
+        Write<'s, Notifications>,
     );
 
     fn run(
         &mut self,
-        (contracts, mut owned_bys, mut cargos, channel, mut update_channel): Self::SystemData,
+        (
+            contracts,
+            ports,
+            mut owned_bys,
+            mut cargos,
+            channel,
+            mut update_channel,
+            mut notifications,
+        ): Self::SystemData,
     ) {
         for event in channel.read(&mut self.reader_id) {
             let target = match event.event_type {
@@ -47,15 +57,28 @@ impl<'s> System<'s> for AcceptContractSystem {
                     owned_bys.get(clicked).map_or(None, |o| Some(o.entity))
                 {
                     if let Some(contract) = contracts.get(associated_entity) {
-                        let port_cargo = cargos
-                            .get_mut(owned_bys.get(associated_entity).unwrap().entity)
-                            .unwrap();
+                        let port = owned_bys.get(associated_entity).unwrap().entity;
+                        let port_cargo = cargos.get_mut(port).unwrap();
 
                         owned_bys.remove(associated_entity);
 
                         for (item_type, amount) in &contract.goods_required {
                             *port_cargo.items.entry(*item_type).or_insert(0) += amount;
                         }
+
+                        let items_notification = contract
+                            .goods_required
+                            .iter()
+                            .sorted_by_key(|(&item, _)| item)
+                            .map(|(item, amount)| format!("{} tons of {}", amount, item))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+
+                        notifications.push_back(format!(
+                            "Contract accepted. {} ready to be loaded at {}.",
+                            items_notification,
+                            ports.get(port).unwrap().name,
+                        ));
                         update_channel.single_write(UiUpdateEvent::Target(associated_entity));
                     }
                 }
@@ -147,7 +170,7 @@ impl<'s> System<'s> for FulfillContractSystem {
                     .goods_required
                     .iter()
                     .sorted_by_key(|(&item, _)| item)
-                    .map(|(item, amount)| format!("{} {}", amount, item))
+                    .map(|(item, amount)| format!("{} tons of {}", amount, item))
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -184,6 +207,9 @@ mod tests {
             .with_effect(|world| {
                 let port = world
                     .create_entity()
+                    .with(Port {
+                        name: "".to_string(),
+                    })
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -243,6 +269,9 @@ mod tests {
             .with_effect(|world| {
                 let port = world
                     .create_entity()
+                    .with(Port {
+                        name: "".to_string(),
+                    })
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -303,6 +332,9 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
+                    .with(Port {
+                        name: "".to_string(),
+                    })
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -356,6 +388,74 @@ mod tests {
                         format!("Number of {} in cargo", k)
                     );
                 }
+            })
+            .run()
+    }
+
+    #[test]
+    fn accepted_contract_sends_notification() -> Result<()> {
+        const PORT: &str = "Portsmouth";
+
+        let goods_required: HashMap<ItemType, u32> = [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+            .iter()
+            .cloned()
+            .collect();
+
+        AmethystApplication::blank()
+            .with_system_desc(AcceptContractSystemDesc, "accept_contract", &[])
+            .with_effect(move |world| {
+                let port = world
+                    .create_entity()
+                    .with(Port {
+                        name: PORT.to_string(),
+                    })
+                    .with(Cargo {
+                        items: HashMap::new(),
+                    })
+                    .build();
+
+                world.insert(EffectReturn(port));
+
+                let destination = world.create_entity().build();
+
+                let contract = world
+                    .create_entity()
+                    .with(Contract {
+                        payment: 0,
+                        destination: destination,
+                        goods_required: goods_required,
+                    })
+                    .with(OwnedBy { entity: port })
+                    .build();
+
+                let ui_entity = world
+                    .create_entity()
+                    .with(OwnedBy { entity: contract })
+                    .build();
+
+                let reader_id = world
+                    .fetch_mut::<EventChannel<UiUpdateEvent>>()
+                    .register_reader();
+
+                world.insert(reader_id);
+
+                let mut channel = world.fetch_mut::<EventChannel<UiEvent>>();
+                channel.single_write(UiEvent {
+                    event_type: UiEventType::ClickStop,
+                    target: ui_entity,
+                });
+            })
+            .with_assertion(move |world| {
+                let notifications = world.read_resource::<Notifications>().clone();
+                assert_eq!(1, notifications.len(), "Number of notifications");
+                assert_eq!(
+                    &format!(
+                        "Contract accepted. 5 tons of Rum, 10 tons of Sugar ready to be loaded at {}.",
+                        PORT
+                    ),
+                    notifications.front().unwrap(),
+                    "Notification"
+                );
             })
             .run()
     }
@@ -539,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn fulfilling_sends_notification() -> Result<()> {
+    fn fulfilling_contract_sends_notification() -> Result<()> {
         const PAYMENT: u32 = 100;
         const PORT: &str = "London";
         let goods_required: HashMap<ItemType, u32> = [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
@@ -584,7 +684,7 @@ mod tests {
                 assert_eq!(1, notifications.len(), "Number of notifications");
                 assert_eq!(
                     &format!(
-                        "Completed contract for £{} at {}. 5 Rum, 10 Sugar removed from cargo.",
+                        "Completed contract for £{} at {}. 5 tons of Rum, 10 tons of Sugar removed from cargo.",
                         PAYMENT, PORT
                     ),
                     notifications.front().unwrap(),

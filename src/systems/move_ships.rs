@@ -286,7 +286,7 @@ impl<'s> System<'s> for DockingSystem {
                     let items_notification = port_cargo
                         .iter()
                         .sorted_by_key(|(&item, _)| item)
-                        .map(|(item, amount)| format!("{} {}", amount, item))
+                        .map(|(item, amount)| format!("{} tons of {}", amount, item))
                         .collect::<Vec<_>>()
                         .join(", ");
                     
@@ -310,7 +310,6 @@ mod tests {
     use amethyst::{ecs::Entity, prelude::*, Result};    
     use amethyst_test::prelude::*;
     use std::collections::HashMap;
-
 
     #[test]
     fn moves_ships_chooses_next_waypoint_if_close_enough_to_current_one() -> Result<()> {
@@ -1016,7 +1015,7 @@ mod tests {
                 assert_eq!(1, notifications.len(), "Number of notifications");
                 assert_eq!(
                     &format!(
-                        "5 Rum, 10 Sugar loaded onto ship at {}.",
+                        "5 tons of Rum, 10 tons of Sugar loaded onto ship at {}.",
                         PORT
                     ),
                     notifications.front().unwrap(),
