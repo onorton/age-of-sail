@@ -16,7 +16,7 @@ use amethyst::{
     ui::{FontAsset, TtfFormat, UiCreator},
     window::ScreenDimensions,
 };
-use chrono::{Datelike, Duration, TimeZone, Utc};
+use chrono::{Duration, TimeZone, Utc};
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
 pub const WORLD_WIDTH: f32 = 400.0;
@@ -298,6 +298,7 @@ pub fn point_mouse_to_world(
 pub struct PlayerStatus {
     pub money: i32,
 }
+
 pub struct Date {
     pub time_elapsed: f64,
     pub current_speed: f32,
@@ -315,15 +316,14 @@ impl Default for Date {
 }
 
 impl Date {
-    pub fn current_date(&self) -> String {
-        let start_year = 1680;
-        let utc = Utc.ymd(1970, 1, 1);
+    pub fn current_date_string(&self) -> String {
+        self.current_date().format("%e %B %Y").to_string()
+    }
 
-        let current = utc.add(Duration::seconds(self.time_elapsed as i64));
+    pub fn current_date(&self) -> chrono::Date<Utc> {
+        let utc = Utc.ymd(1680, 1, 1);
 
-        let mut date_string = current.format("%e %B").to_string();
-        date_string.push_str(&*format!(" {}", current.year() - 1970 + start_year));
-        date_string
+        utc.add(Duration::seconds(self.time_elapsed as i64))
     }
 
     pub fn game_speed(&self) -> f32 {
