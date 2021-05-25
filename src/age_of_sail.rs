@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::components::{
-    bounding_box::BoundingBox, Action, Ai, AiState, Cargo, Contract, Controllable, ItemType,
-    OwnedBy, Patrol, Pirate, Port, Ship, StateQuery,
+    bounding_box::BoundingBox, Action, Ai, AiState, Cargo, Contract, Controllable, Expiration,
+    ItemType, OwnedBy, Patrol, Pirate, Port, Ship, StateQuery,
 };
 use amethyst::{
     assets::{AssetStorage, Handle, Loader},
@@ -233,15 +233,27 @@ fn initialise_contracts(world: &mut World) {
                 }
             };
 
-            world
+            let contract = world
                 .create_entity()
                 .with(Contract {
                     payment: rng.gen_range(10..100) * 10,
                     destination,
                     goods_required,
                 })
-                .with(OwnedBy { entity: *p })
-                .build();
+                .with(OwnedBy { entity: *p });
+
+            if rng.gen_bool(0.3) {
+                let days_ahead = rng.gen_range(5..20);
+                let expiration_date = Utc.ymd(1680, 1, 1).add(Duration::days(days_ahead));
+                contract
+                    .with(Expiration {
+                        expiration_date,
+                        expired: false,
+                    })
+                    .build();
+            } else {
+                contract.build();
+            }
         }
     }
 }

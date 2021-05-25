@@ -14,7 +14,7 @@ use amethyst::{
 
 use crate::{
     age_of_sail::{Date, PlayerStatus, UiAssets, Notifications},
-    components::{Contract, OwnedBy},
+    components::{Contract, OwnedBy, Expiration},
 };
 use crate::{components::Port, event::UiUpdateEvent};
 
@@ -39,6 +39,7 @@ impl<'s> System<'s> for PortPanelSystem {
         Entities<'s>,
         ReadStorage<'s, Port>,
         ReadStorage<'s, Contract>,
+        ReadStorage<'s, Expiration>,
         WriteStorage<'s, OwnedBy>,
         Read<'s, EventChannel<UiUpdateEvent>>,
         WriteStorage<'s, UiText>,
@@ -55,6 +56,7 @@ impl<'s> System<'s> for PortPanelSystem {
             entities,
             ports,
             contracts,
+            expirations,
             mut owned_bys,
             channel,
             mut ui_texts,
@@ -107,7 +109,14 @@ impl<'s> System<'s> for PortPanelSystem {
                     for (e, c) in contracts_held_by_port {
                         let destination_name = ports.get(c.destination).unwrap().name.clone();
 
-                        let contract_ui_height = 70. + 20. * c.goods_required.keys().len() as f32;
+
+                        let expiration_ui_space = if expirations.get(e).is_some() {
+                            20.
+                        } else {
+                            0.
+                        };
+
+                        let contract_ui_height = 70. + 20. * c.goods_required.keys().len() as f32 + expiration_ui_space;
                         let contract_ui_width = 175.;
 
                         let contract_parent = entities
@@ -254,6 +263,45 @@ impl<'s> System<'s> for PortPanelSystem {
 
                             goods_offset += 20.;
                         }
+
+                        if let Some(expiration) = expirations.get(e) {
+                            entities
+                                .build_entity()
+                                .with(
+                                    UiText::new(
+                                        ui_assets.font.clone(),
+                                        format!("Expires: {}", expiration.expiration_date.format("%e %B %Y").to_string()),
+                                        [1.0, 1.0, 1.0, 1.0],
+                                        15.,
+                                        LineMode::Single,
+                                        Anchor::Middle,
+                                    ),
+                                    &mut ui_texts,
+                                )
+                                .with(
+                                    UiTransform::new(
+                                        "expiration_date".to_string(),
+                                        Anchor::TopMiddle,
+                                        Anchor::TopMiddle,
+                                        0.,
+                                        -goods_offset,
+                                        1.,
+                                        175.,
+                                        20.,
+                                    ),
+                                    &mut ui_transforms,
+                                )
+                                .with(
+                                    Parent {
+                                        entity: contract_parent,
+                                    },
+                                    &mut parents,
+                                )
+                                .build();
+
+                        }
+
+
 
                         entities
                             .build_entity()

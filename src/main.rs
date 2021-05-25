@@ -11,7 +11,7 @@ use amethyst::{
     utils::application_root_dir,
 };
 use systems::{
-    AiSystem, ChaseSystem, CollisionSystem, DestroySystemDesc, DockingSystem,
+    AiSystem, ChaseSystem, CollisionSystem, DestroySystemDesc, DockingSystem, ExpirationSystem,
     FulfillContractSystem, GameSpeedSystemDesc, NotificationSystem, PatrolSystem,
     PlayerStatusSystemDesc, PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem,
     UpdateTimeSystem,
@@ -50,6 +50,7 @@ fn main() -> amethyst::Result<()> {
                 .with_plugin(RenderFlat2D::default()),
         )?
         .with(UpdateTimeSystem, "time", &[])
+        .with(ExpirationSystem, "expiration", &[])
         .with(AiSystem, "ai", &[])
         .with(PatrolSystem, "patrol", &[])
         .with(ChaseSystem, "chase", &[])
