@@ -1,6 +1,6 @@
 use crate::{
     age_of_sail::{Notifications, PlayerStatus, DISTANCE_THRESHOLD},
-    components::{Cargo, Contract, OwnedBy, Port, Ship},
+    components::{Cargo, Contract, Expiration, OwnedBy, Port, Ship},
     event::UiUpdateEvent,
 };
 use amethyst::{
@@ -12,6 +12,7 @@ use amethyst::{
     ui::{UiEvent, UiEventType},
 };
 use itertools::Itertools;
+use std::collections::HashSet;
 
 pub struct AcceptContractSystem {
     reader_id: ReaderId<UiEvent>,
@@ -26,6 +27,7 @@ impl AcceptContractSystem {
 impl<'s> System<'s> for AcceptContractSystem {
     type SystemData = (
         ReadStorage<'s, Contract>,
+        ReadStorage<'s, Expiration>,
         ReadStorage<'s, Port>,
         WriteStorage<'s, OwnedBy>,
         WriteStorage<'s, Cargo>,
@@ -38,6 +40,7 @@ impl<'s> System<'s> for AcceptContractSystem {
         &mut self,
         (
             contracts,
+            expirations,
             ports,
             mut owned_bys,
             mut cargos,
@@ -74,11 +77,22 @@ impl<'s> System<'s> for AcceptContractSystem {
                             .collect::<Vec<_>>()
                             .join(", ");
 
-                        notifications.push_back(format!(
+                        let contract_accepted_message = format!(
                             "Contract accepted. {} ready to be loaded at {}.",
                             items_notification,
                             ports.get(port).unwrap().name,
-                        ));
+                        );
+
+                        if let Some(expiration) = expirations.get(associated_entity) {
+                            notifications.push_back(format!(
+                                "{} It will expire on {}.",
+                                contract_accepted_message,
+                                expiration.expiration_date.format("%e %B %Y").to_string()
+                            ));
+                        } else {
+                            notifications.push_back(contract_accepted_message);
+                        }
+
                         update_channel.single_write(UiUpdateEvent::Target(associated_entity));
                     }
                 }
@@ -192,12 +206,55 @@ impl<'s> System<'s> for FulfillContractSystem {
     }
 }
 
+pub struct ExpireContractSystem;
+
+impl<'s> System<'s> for ExpireContractSystem {
+    type SystemData = (
+        Entities<'s>,
+        ReadStorage<'s, Contract>,
+        ReadStorage<'s, OwnedBy>,
+        ReadStorage<'s, Expiration>,
+        Write<'s, Notifications>,
+        Write<'s, EventChannel<UiUpdateEvent>>,
+    );
+
+    fn run(
+        &mut self,
+        (
+            entities,
+            contracts,
+            owned_bys,
+            expirations,
+            mut notifications,
+            mut channel,
+        ): Self::SystemData,
+    ) {
+        let mut contracts_to_destroy = HashSet::new();
+
+        for (e, _, expiration) in (&entities, &contracts, &expirations).join() {
+            if expiration.expired {
+                contracts_to_destroy.insert(e);
+                match owned_bys.get(e) {
+                    Some(_) => channel.single_write(UiUpdateEvent::Target(e)),
+                    None => notifications
+                        .push_back("A contract you have accepted has expired".to_string()),
+                }
+            }
+        }
+
+        for e in contracts_to_destroy {
+            entities.delete(e).unwrap();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::components::{Cargo, Contract, ItemType, OwnedBy};
     use amethyst::{ecs::Entity, prelude::*, Result};
     use amethyst_test::prelude::*;
+    use chrono::{Date, TimeZone, Utc};
     use std::collections::HashMap;
 
     #[test]
@@ -452,6 +509,78 @@ mod tests {
                     &format!(
                         "Contract accepted. 5 tons of Rum, 10 tons of Sugar ready to be loaded at {}.",
                         PORT
+                    ),
+                    notifications.front().unwrap(),
+                    "Notification"
+                );
+            })
+            .run()
+    }
+
+    #[test]
+    fn accepted_contract_expiration_sends_notification() -> Result<()> {
+        const PORT: &str = "Portsmouth";
+        let expiration_date = Utc.ymd(1680, 1, 1);
+        let expiration_date_cloned = expiration_date.clone();
+
+        let goods_required: HashMap<ItemType, u32> = [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+            .iter()
+            .cloned()
+            .collect();
+
+        AmethystApplication::blank()
+            .with_system_desc(AcceptContractSystemDesc, "accept_contract", &[])
+            .with_effect(move |world| {
+                let port = world
+                    .create_entity()
+                    .with(Port {
+                        name: PORT.to_string(),
+                    })
+                    .with(Cargo {
+                        items: HashMap::new(),
+                    })
+                    .build();
+
+                world.insert(EffectReturn(port));
+
+                let destination = world.create_entity().build();
+
+                let contract = world
+                    .create_entity()
+                    .with(Contract {
+                        payment: 0,
+                        destination: destination,
+                        goods_required: goods_required,
+                    })
+                    .with(OwnedBy { entity: port })
+                    .with(Expiration { expired: false, expiration_date: expiration_date})
+                    .build();
+
+                let ui_entity = world
+                    .create_entity()
+                    .with(OwnedBy { entity: contract })
+                    .build();
+
+                let reader_id = world
+                    .fetch_mut::<EventChannel<UiUpdateEvent>>()
+                    .register_reader();
+
+                world.insert(reader_id);
+
+                let mut channel = world.fetch_mut::<EventChannel<UiEvent>>();
+                channel.single_write(UiEvent {
+                    event_type: UiEventType::ClickStop,
+                    target: ui_entity,
+                });
+            })
+            .with_assertion(move |world| {
+                let notifications = world.read_resource::<Notifications>().clone();
+                assert_eq!(1, notifications.len(), "Number of notifications");
+                assert_eq!(
+                    &format!(
+                        "Contract accepted. 5 tons of Rum, 10 tons of Sugar ready to be loaded at {}. It will expire on {}.",
+                        PORT,
+                        expiration_date_cloned.format("%e %B %Y")
                     ),
                     notifications.front().unwrap(),
                     "Notification"
@@ -846,6 +975,160 @@ mod tests {
             .with_assertion(|world| {
                 let player_status = world.fetch::<PlayerStatus>();
                 assert_eq!(ORIGINAL_MONEY, player_status.money);
+            })
+            .run()
+    }
+
+    #[test]
+    fn expired_contract_is_deleted() -> Result<()> {
+        AmethystApplication::blank()
+            .with_system(ExpireContractSystem, "expire_contract", &[])
+            .with_effect(|world| {
+                let destination = world.create_entity().build();
+                let contract = world
+                    .create_entity()
+                    .with(Contract {
+                        payment: 0,
+                        destination,
+                        goods_required: [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+                            .iter()
+                            .cloned()
+                            .collect(),
+                    })
+                    .with(Expiration {
+                        expiration_date: Utc.ymd(1680, 1, 1),
+                        expired: true,
+                    })
+                    .build();
+
+                world.insert(EffectReturn(contract));
+            })
+            .with_assertion(|world| {
+                world.maintain();
+                let contract_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
+                assert!(!world.entities().is_alive(contract_entity));
+            })
+            .run()
+    }
+
+    #[test]
+    fn non_expired_contract_not_deleted() -> Result<()> {
+        AmethystApplication::blank()
+            .with_system(ExpireContractSystem, "expire_contract", &[])
+            .with_effect(|world| {
+                let destination = world.create_entity().build();
+                let contract = world
+                    .create_entity()
+                    .with(Contract {
+                        payment: 0,
+                        destination,
+                        goods_required: [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+                            .iter()
+                            .cloned()
+                            .collect(),
+                    })
+                    .with(Expiration {
+                        expiration_date: Utc.ymd(1680, 1, 1),
+                        expired: false,
+                    })
+                    .build();
+
+                world.insert(EffectReturn(contract));
+            })
+            .with_assertion(|world| {
+                world.maintain();
+                let contract_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
+                assert!(world.entities().is_alive(contract_entity));
+            })
+            .run()
+    }
+
+    #[test]
+    fn expired_contract_in_port_sends_ui_update_event() -> Result<()> {
+        AmethystApplication::blank()
+            .with_system(ExpireContractSystem, "expire_contract", &[])
+            .with_effect(|world| {
+                let port = world.create_entity().build();
+                let destination = world.create_entity().build();
+
+                let contract = world
+                    .create_entity()
+                    .with(Contract {
+                        payment: 0,
+                        destination: destination,
+                        goods_required: [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+                            .iter()
+                            .cloned()
+                            .collect(),
+                    })
+                    .with(OwnedBy { entity: port })
+                    .with(Expiration {
+                        expiration_date: Utc.ymd(1680, 1, 1),
+                        expired: true,
+                    })
+                    .build();
+
+                world.insert(EffectReturn(contract));
+
+                let reader_id = world
+                    .fetch_mut::<EventChannel<UiUpdateEvent>>()
+                    .register_reader();
+
+                world.insert(reader_id);
+            })
+            .with_assertion(|world| {
+                let contract_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
+
+                let ui_update_event_channel = world.fetch_mut::<EventChannel<UiUpdateEvent>>();
+                let mut reader_id = world.fetch_mut::<ReaderId<UiUpdateEvent>>();
+                let update_event = ui_update_event_channel.read(&mut reader_id).next().unwrap();
+                match update_event {
+                    UiUpdateEvent::Target(t) => assert_eq!(contract_entity, *t),
+                    _ => panic!("Expected event to be of type `Target`"),
+                }
+            })
+            .run()
+    }
+
+    #[test]
+    fn player_expired_contract_sends_notification() -> Result<()> {
+        AmethystApplication::blank()
+            .with_system(ExpireContractSystem, "expire_contract", &[])
+            .with_effect(|world| {
+                let destination = world.create_entity().build();
+
+                let contract = world
+                    .create_entity()
+                    .with(Contract {
+                        payment: 0,
+                        destination: destination,
+                        goods_required: [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+                            .iter()
+                            .cloned()
+                            .collect(),
+                    })
+                    .with(Expiration {
+                        expiration_date: Utc.ymd(1680, 1, 1),
+                        expired: true,
+                    })
+                    .build();
+
+                world.insert(EffectReturn(contract));
+
+                let reader_id = world
+                    .fetch_mut::<EventChannel<UiUpdateEvent>>()
+                    .register_reader();
+
+                world.insert(reader_id);
+            })
+            .with_assertion(|world| {
+                let notifications = world.read_resource::<Notifications>().clone();
+                assert_eq!(1, notifications.len(), "Number of notifications");
+                let notification = notifications.front().unwrap();
+                assert_eq!(
+                    "A contract you have accepted has expired", notification,
+                    "Notification message"
+                );
             })
             .run()
     }

@@ -12,8 +12,8 @@ use amethyst::{
 };
 use systems::{
     AiSystem, ChaseSystem, CollisionSystem, DestroySystemDesc, DockingSystem, ExpirationSystem,
-    FulfillContractSystem, GameSpeedSystemDesc, NotificationSystem, PatrolSystem,
-    PlayerStatusSystemDesc, PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem,
+    ExpireContractSystem, FulfillContractSystem, GameSpeedSystemDesc, NotificationSystem,
+    PatrolSystem, PlayerStatusSystemDesc, PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem,
     UpdateTimeSystem,
 };
 
@@ -51,6 +51,7 @@ fn main() -> amethyst::Result<()> {
         )?
         .with(UpdateTimeSystem, "time", &[])
         .with(ExpirationSystem, "expiration", &[])
+        .with(ExpireContractSystem, "expired_contract", &[])
         .with(AiSystem, "ai", &[])
         .with(PatrolSystem, "patrol", &[])
         .with(ChaseSystem, "chase", &[])

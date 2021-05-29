@@ -41,7 +41,7 @@ impl<'s> System<'s> for ExpirationSystem {
 
     fn run(&mut self, (mut expirations, date): Self::SystemData) {
         for expiration in (&mut expirations).join() {
-            if date.current_date() > expiration.expiration_date {
+            if date.current_date() >= expiration.expiration_date {
                 expiration.expired = true;
             }
         }
@@ -110,7 +110,7 @@ mod tests {
             .run()
     }
 
-    #[test_case(Utc.ymd(1680, 1, 1), false ; "On expiration date not expired")]
+    #[test_case(Utc.ymd(1680, 1, 1), true ; "On expiration date expired")]
     #[test_case(Utc.ymd(1680, 1, 2), false ; "Before expiration date not expired")]
     #[test_case(Utc.ymd(1679, 12, 31), true ; "After expiration date expired")]
     fn test_expiration_sets_expired_status_properly(

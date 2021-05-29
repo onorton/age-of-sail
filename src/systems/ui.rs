@@ -95,9 +95,18 @@ impl<'s> System<'s> for PortPanelSystem {
                         text.text = port.name.clone();
                     };
 
-                    let contracts_held_by_port = (&entities, &contracts, &owned_bys)
+                    let unexpired_contracts_held_by_port = (&entities, &contracts, &owned_bys)
                         .join()
-                        .filter(|(_, _, o)| o.entity == e)
+                        .filter(|(entity, _, o)| 
+                            { 
+                                let expired = if let Some(expiration) = expirations.get(*entity) {
+                                    expiration.expired
+                                } else {
+                                    false
+                                };
+                                return o.entity == e && !expired;
+
+                        })
                         .map(|(e, c, _)| (e, c))
                         .collect::<Vec<(Entity, &Contract)>>();
 
@@ -106,9 +115,8 @@ impl<'s> System<'s> for PortPanelSystem {
 
                     let mut offset = 50.;
 
-                    for (e, c) in contracts_held_by_port {
+                    for (e, c) in unexpired_contracts_held_by_port {
                         let destination_name = ports.get(c.destination).unwrap().name.clone();
-
 
                         let expiration_ui_space = if expirations.get(e).is_some() {
                             20.
