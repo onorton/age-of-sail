@@ -176,7 +176,7 @@ fn initialise_ports(world: &mut World) {
         .build();
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(350.0, 110.0, 0.0);
+    transform.set_translation_xyz(275.0, 110.0, 0.0);
     world
         .create_entity()
         .with(Port)

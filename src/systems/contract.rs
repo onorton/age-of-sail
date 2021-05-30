@@ -194,6 +194,8 @@ impl<'s> System<'s> for FulfillContractSystem {
 
                 player_status.money += contract.payment as i32;
                 channel.single_write(UiUpdateEvent::PlayerStatus);
+                channel.single_write(UiUpdateEvent::Target(e));
+
                 entities.delete(e).unwrap();
                 notifications.push_back(format!(
                     "Completed contract for £{} at {}. {} removed from cargo.",
@@ -575,6 +577,62 @@ mod tests {
                     notifications.front().unwrap(),
                     "Notification"
                 );
+            })
+            .run()
+    }
+
+    #[test]
+    fn fulfilling_contract_sends_ui_update_event_for_contract() -> Result<()> {
+        let goods_required: HashMap<ItemType, u32> = [(ItemType::Sugar, 10), (ItemType::Rum, 5)]
+            .iter()
+            .cloned()
+            .collect();
+
+        AmethystApplication::blank()
+            .with_system(FulfillContractSystem, "fulfill_contract", &[])
+            .with_effect(move |world| {
+                let port = world
+                    .create_entity()
+                    .named("Portsmouth")
+                    .with(Cargo {
+                        items: HashMap::new(),
+                    })
+                    .with(Transform::default())
+                    .build();
+
+                world
+                    .create_entity()
+                    .with(Ship { base_speed: 1.0 })
+                    .with(Cargo {
+                        items: goods_required.clone(),
+                    })
+                    .with(Transform::default())
+                    .build();
+
+                let contract = world
+                    .create_entity()
+                    .with(Contract {
+                        payment: 0,
+                        destination: port,
+                        goods_required: goods_required.clone(),
+                    })
+                    .build();
+
+                let reader_id = world
+                    .fetch_mut::<EventChannel<UiUpdateEvent>>()
+                    .register_reader();
+
+                world.insert(reader_id);
+
+                world.insert(EffectReturn(contract));
+            })
+            .with_assertion(|world| {
+                let contract_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
+
+                let ui_update_event_channel = world.fetch_mut::<EventChannel<UiUpdateEvent>>();
+                let mut reader_id = world.fetch_mut::<ReaderId<UiUpdateEvent>>();
+                let update_event = ui_update_event_channel.read(&mut reader_id).last().unwrap();
+                assert_eq!(UiUpdateEvent::Target(contract_entity), *update_event);
             })
             .run()
     }

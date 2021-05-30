@@ -7,8 +7,8 @@ pub use self::move_ships::{
 pub use self::select::{SelectPortSystem, SelectShipSystem, SelectSystem};
 pub use self::time::{ExpirationSystem, UpdateTimeSystem};
 pub use self::ui::{
-    GameSpeedSystemDesc, NotificationSystem, PlayerStatusSystemDesc, PortPanelSystemDesc,
-    ShipPanelSystemDesc,
+    ContractPanelSystemDesc, GameSpeedSystemDesc, NotificationSystem, PlayerStatusSystemDesc,
+    PortPanelSystemDesc, ShipPanelSystemDesc,
 };
 
 mod ai;

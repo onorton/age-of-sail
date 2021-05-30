@@ -403,6 +403,316 @@ impl<'a, 'b> RunNowDesc<'a, 'b, PortPanelSystem> for PortPanelSystemDesc {
     }
 }
 
+pub struct ContractPanelSystem {
+    reader_id: ReaderId<UiUpdateEvent>,
+}
+
+impl ContractPanelSystem {
+    fn new(reader_id: ReaderId<UiUpdateEvent>) -> Self {
+        ContractPanelSystem {
+            reader_id,
+        }
+    }
+}
+
+impl<'s> System<'s> for ContractPanelSystem {
+    type SystemData = (
+        Entities<'s>,
+        ReadStorage<'s, Named>,
+        ReadStorage<'s, Contract>,
+        ReadStorage<'s, Expiration>,
+        WriteStorage<'s, OwnedBy>,
+        Read<'s, EventChannel<UiUpdateEvent>>,
+        WriteStorage<'s, UiText>,
+        WriteStorage<'s, UiTransform>,
+        WriteStorage<'s, UiImage>,
+        WriteStorage<'s, Parent>,
+        ReadExpect<'s, UiAssets>,
+    );
+
+    fn run(
+        &mut self,
+        (
+            entities,
+            names,
+            contracts,
+            expirations,
+            owned_bys,
+            channel,
+            mut ui_texts,
+            mut ui_transforms,
+            mut ui_images,
+            mut parents,
+            ui_assets,
+        ): Self::SystemData,
+    ) {
+        for event in channel.read(&mut self.reader_id) {
+            let target = match event {
+                UiUpdateEvent::Target(e) => Some(*e),
+                _ => None,
+            };
+
+            if let Some(target) = target {
+                if contracts.get(target).is_some() {
+                    let contract_ui_elements =
+                        find_ui_elements(&entities, &ui_transforms, "player_contract");
+                    for c in contract_ui_elements {
+                        entities.delete(c).unwrap();
+                    }
+
+                    let unexpired_contracts_held_by_player = (&entities, &contracts, !&owned_bys)
+                        .join()
+                        .filter(|(entity, _, _)| 
+                            { 
+                                let expired = if let Some(expiration) = expirations.get(*entity) {
+                                    expiration.expired
+                                } else {
+                                    false
+                                };
+                                return !expired;
+
+                        })
+                        .map(|(e, c, _)| (e, c))
+                        .collect::<Vec<(Entity, &Contract)>>();
+
+                    let player_contracts_info_container =
+                        find_ui_element(&entities, &ui_transforms, "player_contracts_info").unwrap();
+
+                    let mut offset = 50.;
+
+                    for (e, c) in unexpired_contracts_held_by_player {
+                        let destination_name = names.get(c.destination).unwrap().name.to_string();
+
+                        let expiration_ui_space = if expirations.get(e).is_some() {
+                            20.
+                        } else {
+                            0.
+                        };
+
+                        let contract_ui_height = 50. + 20. * c.goods_required.keys().len() as f32 + expiration_ui_space;
+                        let contract_ui_width = 175.;
+
+                        let contract_parent = entities
+                            .build_entity()
+                            .with(
+                                UiTransform::new(
+                                    "player_contract".to_string(),
+                                    Anchor::TopMiddle,
+                                    Anchor::TopMiddle,
+                                    0.,
+                                    -offset,
+                                    1.,
+                                    contract_ui_width,
+                                    contract_ui_height,
+                                ),
+                                &mut ui_transforms,
+                            )
+                            .with(
+                                UiImage::NineSlice {
+                                    x_start: 4,
+                                    y_start: 4,
+                                    width: 56,
+                                    height: 56,
+                                    left_dist: 4,
+                                    right_dist: 4,
+                                    top_dist: 4,
+                                    bottom_dist: 4,
+                                    tex: ui_assets.panel.clone(),
+                                    texture_dimensions: [64, 64],
+                                },
+                                &mut ui_images,
+                            )
+                            .with(
+                                Parent {
+                                    entity: player_contracts_info_container,
+                                },
+                                &mut parents,
+                            )
+                            .build();
+
+                        entities
+                            .build_entity()
+                            .with(
+                                UiText::new(
+                                    ui_assets.font.clone(),
+                                    format!("For: {}", destination_name),
+                                    [1.0, 1.0, 1.0, 1.0],
+                                    15.,
+                                    LineMode::Single,
+                                    Anchor::Middle,
+                                ),
+                                &mut ui_texts,
+                            )
+                            .with(
+                                UiTransform::new(
+                                    "contract_destination".to_string(),
+                                    Anchor::TopMiddle,
+                                    Anchor::TopMiddle,
+                                    0.,
+                                    -5.,
+                                    1.,
+                                    contract_ui_width,
+                                    20.,
+                                ),
+                                &mut ui_transforms,
+                            )
+                            .with(
+                                Parent {
+                                    entity: contract_parent,
+                                },
+                                &mut parents,
+                            )
+                            .build();
+
+                        entities
+                            .build_entity()
+                            .with(
+                                UiText::new(
+                                    ui_assets.font.clone(),
+                                    format!("£{}", c.payment),
+                                    [1.0, 1.0, 1.0, 1.0],
+                                    15.,
+                                    LineMode::Single,
+                                    Anchor::Middle,
+                                ),
+                                &mut ui_texts,
+                            )
+                            .with(
+                                UiTransform::new(
+                                    "contract_payment".to_string(),
+                                    Anchor::TopMiddle,
+                                    Anchor::TopMiddle,
+                                    0.,
+                                    -25.,
+                                    1.,
+                                    contract_ui_width,
+                                    20.,
+                                ),
+                                &mut ui_transforms,
+                            )
+                            .with(
+                                Parent {
+                                    entity: contract_parent,
+                                },
+                                &mut parents,
+                            )
+                            .build();
+
+                        let mut goods_offset = 45.;
+                        for (item, amount) in &c.goods_required {
+                            entities
+                                .build_entity()
+                                .with(
+                                    UiText::new(
+                                        ui_assets.font.clone(),
+                                        format!("{}: {} tons", item, amount),
+                                        [1.0, 1.0, 1.0, 1.0],
+                                        15.,
+                                        LineMode::Single,
+                                        Anchor::Middle,
+                                    ),
+                                    &mut ui_texts,
+                                )
+                                .with(
+                                    UiTransform::new(
+                                        "goods".to_string(),
+                                        Anchor::TopMiddle,
+                                        Anchor::TopMiddle,
+                                        0.,
+                                        -goods_offset,
+                                        1.,
+                                        175.,
+                                        20.,
+                                    ),
+                                    &mut ui_transforms,
+                                )
+                                .with(
+                                    Parent {
+                                        entity: contract_parent,
+                                    },
+                                    &mut parents,
+                                )
+                                .build();
+
+                            goods_offset += 20.;
+                        }
+
+                        if let Some(expiration) = expirations.get(e) {
+                            entities
+                                .build_entity()
+                                .with(
+                                    UiText::new(
+                                        ui_assets.font.clone(),
+                                        format!("Expires: {}", expiration.expiration_date.format("%e %B %Y").to_string()),
+                                        [1.0, 1.0, 1.0, 1.0],
+                                        15.,
+                                        LineMode::Single,
+                                        Anchor::Middle,
+                                    ),
+                                    &mut ui_texts,
+                                )
+                                .with(
+                                    UiTransform::new(
+                                        "expiration_date".to_string(),
+                                        Anchor::TopMiddle,
+                                        Anchor::TopMiddle,
+                                        0.,
+                                        -goods_offset,
+                                        1.,
+                                        175.,
+                                        20.,
+                                    ),
+                                    &mut ui_transforms,
+                                )
+                                .with(
+                                    Parent {
+                                        entity: contract_parent,
+                                    },
+                                    &mut parents,
+                                )
+                                .build();
+
+                        }
+
+                        offset += contract_ui_height + 5.;
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+pub struct ContractPanelSystemDesc;
+
+impl Default for ContractPanelSystemDesc {
+    fn default() -> Self {
+        ContractPanelSystemDesc {}
+    }
+}
+
+impl<'a, 'b> SystemDesc<'a, 'b, ContractPanelSystem> for ContractPanelSystemDesc {
+    fn build(self, world: &mut World) -> ContractPanelSystem {
+        <ContractPanelSystem as System<'_>>::SystemData::setup(world);
+
+        let reader_id = world
+            .fetch_mut::<EventChannel<UiUpdateEvent>>()
+            .register_reader();
+
+        ContractPanelSystem::new(reader_id)
+    }
+}
+
+impl<'a, 'b> RunNowDesc<'a, 'b, ContractPanelSystem> for ContractPanelSystemDesc {
+    fn build(self, world: &mut World) -> ContractPanelSystem {
+        <ContractPanelSystemDesc as SystemDesc<'a, 'b, ContractPanelSystem>>::build(self, world)
+    }
+}
+
+
+
 pub struct ShipPanelSystem {
     reader_id: ReaderId<UiUpdateEvent>,
     selected_ship: Option<Entity>,

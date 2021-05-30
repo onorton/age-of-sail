@@ -11,10 +11,11 @@ use amethyst::{
     utils::application_root_dir,
 };
 use systems::{
-    AiSystem, ChaseSystem, CollisionSystem, DestroySystemDesc, DockingSystem, ExpirationSystem,
-    ExpireContractSystem, FulfillContractSystem, GameSpeedSystemDesc, NotificationSystem,
-    PatrolSystem, PlayerStatusSystemDesc, PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem,
-    SelectShipSystem, ShipPanelSystemDesc, UpdateTimeSystem,
+    AiSystem, ChaseSystem, CollisionSystem, ContractPanelSystemDesc, DestroySystemDesc,
+    DockingSystem, ExpirationSystem, ExpireContractSystem, FulfillContractSystem,
+    GameSpeedSystemDesc, NotificationSystem, PatrolSystem, PlayerStatusSystemDesc,
+    PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem, SelectShipSystem, ShipPanelSystemDesc,
+    UpdateTimeSystem,
 };
 
 mod age_of_sail;
@@ -69,7 +70,8 @@ fn main() -> amethyst::Result<()> {
         .with_system_desc(DestroySystemDesc::default(), "destroy", &[])
         .with(FulfillContractSystem, "fulfill_contract", &[])
         .with_thread_local_desc(PortPanelSystemDesc::default())
-        .with_thread_local_desc(ShipPanelSystemDesc::default());
+        .with_thread_local_desc(ShipPanelSystemDesc::default())
+        .with_thread_local_desc(ContractPanelSystemDesc::default());
 
     let mut game = Application::new(resources, MainState, game_data)?;
     game.run();
