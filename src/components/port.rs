@@ -1,7 +1,5 @@
-use amethyst::ecs::{storage::DenseVecStorage, Component};
+use amethyst::ecs::{storage::NullStorage, Component};
 
-#[derive(Component)]
-#[storage(DenseVecStorage)]
-pub struct Port {
-    pub name: String,
-}
+#[derive(Component, Default)]
+#[storage(NullStorage)]
+pub struct Port;

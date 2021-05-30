@@ -1,10 +1,10 @@
 use crate::{
     age_of_sail::{Notifications, PlayerStatus, DISTANCE_THRESHOLD},
-    components::{Cargo, Contract, Expiration, OwnedBy, Port, Ship},
+    components::{Cargo, Contract, Expiration, OwnedBy, Ship},
     event::UiUpdateEvent,
 };
 use amethyst::{
-    core::{alga::linear::EuclideanSpace, math::Point2, Transform},
+    core::{alga::linear::EuclideanSpace, math::Point2, Named, Transform},
     ecs::{Entities, Join, Read, ReadStorage, System, SystemData, Write, WriteStorage},
     prelude::SystemDesc,
     shred::World,
@@ -28,7 +28,7 @@ impl<'s> System<'s> for AcceptContractSystem {
     type SystemData = (
         ReadStorage<'s, Contract>,
         ReadStorage<'s, Expiration>,
-        ReadStorage<'s, Port>,
+        ReadStorage<'s, Named>,
         WriteStorage<'s, OwnedBy>,
         WriteStorage<'s, Cargo>,
         Read<'s, EventChannel<UiEvent>>,
@@ -41,7 +41,7 @@ impl<'s> System<'s> for AcceptContractSystem {
         (
             contracts,
             expirations,
-            ports,
+            names,
             mut owned_bys,
             mut cargos,
             channel,
@@ -80,7 +80,7 @@ impl<'s> System<'s> for AcceptContractSystem {
                         let contract_accepted_message = format!(
                             "Contract accepted. {} ready to be loaded at {}.",
                             items_notification,
-                            ports.get(port).unwrap().name,
+                            names.get(port).unwrap().name.to_string(),
                         );
 
                         if let Some(expiration) = expirations.get(associated_entity) {
@@ -128,7 +128,7 @@ impl<'s> System<'s> for FulfillContractSystem {
         ReadStorage<'s, Ship>,
         ReadStorage<'s, OwnedBy>,
         ReadStorage<'s, Transform>,
-        ReadStorage<'s, Port>,
+        ReadStorage<'s, Named>,
         WriteStorage<'s, Cargo>,
         Write<'s, Notifications>,
         Write<'s, PlayerStatus>,
@@ -143,7 +143,7 @@ impl<'s> System<'s> for FulfillContractSystem {
             ships,
             owned_bys,
             locals,
-            ports,
+            names,
             mut cargos,
             mut notifications,
             mut player_status,
@@ -198,7 +198,7 @@ impl<'s> System<'s> for FulfillContractSystem {
                 notifications.push_back(format!(
                     "Completed contract for £{} at {}. {} removed from cargo.",
                     contract.payment,
-                    ports.get(contract.destination).unwrap().name,
+                    names.get(contract.destination).unwrap().name.to_string(),
                     items_notification
                 ));
             }
@@ -252,7 +252,7 @@ impl<'s> System<'s> for ExpireContractSystem {
 mod tests {
     use super::*;
     use crate::components::{Cargo, Contract, ItemType, OwnedBy};
-    use amethyst::{ecs::Entity, prelude::*, Result};
+    use amethyst::{core::WithNamed, ecs::Entity, prelude::*, Result};
     use amethyst_test::prelude::*;
     use chrono::{TimeZone, Utc};
     use std::collections::HashMap;
@@ -264,9 +264,7 @@ mod tests {
             .with_effect(|world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: "".to_string(),
-                    })
+                    .named("Portsmouth")
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -326,9 +324,7 @@ mod tests {
             .with_effect(|world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: "".to_string(),
-                    })
+                    .named("Portsmouth")
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -389,9 +385,7 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: "".to_string(),
-                    })
+                    .named("Portsmouth")
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -463,9 +457,7 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: PORT.to_string(),
-                    })
+                    .named(PORT)
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -533,9 +525,7 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: PORT.to_string(),
-                    })
+                    .named(PORT)
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -601,9 +591,7 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: "".to_string(),
-                    })
+                    .named("Portsmouth")
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -657,9 +645,7 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: "".to_string(),
-                    })
+                    .named("Portsmouth")
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -717,9 +703,7 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: "".to_string(),
-                    })
+                    .named("Portsmouth")
                     .with(Cargo {
                         items: HashMap::new(),
                     })
@@ -781,9 +765,7 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port {
-                        name: PORT.to_string(),
-                    })
+                    .named(PORT)
                     .with(Cargo {
                         items: HashMap::new(),
                     })

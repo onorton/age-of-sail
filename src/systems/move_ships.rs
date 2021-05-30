@@ -5,7 +5,7 @@ use amethyst::{
     core::{
         alga::linear::EuclideanSpace,
         math::{Point2, Vector2},
-        Time, Transform,
+        Time, Transform, Named
     },
     derive::SystemDesc,
     ecs::{Entities, Join, Read, ReadExpect, Write, ReadStorage, System, SystemData, WriteStorage},
@@ -255,13 +255,14 @@ impl<'s> System<'s> for DockingSystem {
         Entities<'s>,
         ReadStorage<'s, Ship>,
         ReadStorage<'s, Port>,
+        ReadStorage<'s, Named>,
         WriteStorage<'s, Cargo>,
         WriteStorage<'s, Transform>,
         Write<'s, Notifications>,
     );
 
-    fn run(&mut self, (entities, ships, ports, mut cargos, locals, mut notifications): Self::SystemData) {
-        for (p, port, port_local) in (&entities, &ports, &locals).join() {
+    fn run(&mut self, (entities, ships, ports, names, mut cargos, locals, mut notifications): Self::SystemData) {
+        for (p, _, port_local) in (&entities, &ports, &locals).join() {
             let port_location = Point2::new(port_local.translation().x, port_local.translation().y);
 
             // If a ship is nearby prepare to load ship
@@ -294,7 +295,7 @@ impl<'s> System<'s> for DockingSystem {
                     notifications.push_back(format!(
                         "{} loaded onto ship at {}.",
                         items_notification,
-                        port.name
+                        names.get(p).unwrap().name.to_string()
                     ));
                 }
 
@@ -941,7 +942,8 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port { name: "A port".to_string() })
+                    .with(Port)
+                    .named("A port")
                     .with(Cargo {
                         items: goods_in_port.clone(),
                     })
@@ -990,7 +992,8 @@ mod tests {
             .with_effect(move |world| {
                 world
                     .create_entity()
-                    .with(Port { name: PORT.to_string() })
+                    .with(Port)
+                    .named(PORT)
                     .with(Cargo {
                         items: goods_in_port.clone(),
                     })
@@ -1051,7 +1054,8 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port { name: "A port".to_string() })
+                    .with(Port)
+                    .named("A port")
                     .with(Cargo {
                         items: goods_in_port.clone(),
                     })

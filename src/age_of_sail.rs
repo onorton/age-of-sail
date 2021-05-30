@@ -164,9 +164,8 @@ fn initialise_ports(world: &mut World) {
 
     world
         .create_entity()
-        .with(Port {
-            name: "Portsmouth".to_string(),
-        })
+        .with(Port)
+        .named("Portsmouth")
         .with(Cargo::default())
         .with(sprite_render.clone())
         .with(transform)
@@ -180,9 +179,8 @@ fn initialise_ports(world: &mut World) {
     transform.set_translation_xyz(350.0, 110.0, 0.0);
     world
         .create_entity()
-        .with(Port {
-            name: "London".to_string(),
-        })
+        .with(Port)
+        .named("London")
         .with(Cargo::default())
         .with(sprite_render.clone())
         .with(transform)
@@ -196,9 +194,8 @@ fn initialise_ports(world: &mut World) {
     transform.set_translation_xyz(150.0, 275.0, 0.0);
     world
         .create_entity()
-        .with(Port {
-            name: "Liverpool".to_string(),
-        })
+        .with(Port)
+        .named("Liverpool")
         .with(Cargo::default())
         .with(sprite_render.clone())
         .with(transform)

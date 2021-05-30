@@ -129,13 +129,13 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port { name: "Portsmouth".to_string() })
+                    .with(Port)
                     .with(Selected)
                     .build();
 
                 let another_port = world
                     .create_entity()
-                    .with(Port { name: "London".to_string() })
+                    .with(Port)
                     .with(Selected)
                     .build();
 
@@ -210,13 +210,13 @@ mod tests {
             .with_effect(move |world| {
                 let port = world
                     .create_entity()
-                    .with(Port { name: "Portsmouth".to_string() })
+                    .with(Port)
                     .with(Selected)
                     .build();
 
                 let another_port = world
                     .create_entity()
-                    .with(Port { name: "London".to_string() })
+                    .with(Port)
                     .with(Selected)
                     .build();
 

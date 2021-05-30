@@ -38,6 +38,7 @@ impl<'s> System<'s> for PortPanelSystem {
     type SystemData = (
         Entities<'s>,
         ReadStorage<'s, Port>,
+        ReadStorage<'s, Named>,
         ReadStorage<'s, Contract>,
         ReadStorage<'s, Expiration>,
         WriteStorage<'s, OwnedBy>,
@@ -55,6 +56,7 @@ impl<'s> System<'s> for PortPanelSystem {
         (
             entities,
             ports,
+            names,
             contracts,
             expirations,
             mut owned_bys,
@@ -83,7 +85,7 @@ impl<'s> System<'s> for PortPanelSystem {
                     target
                 };
 
-                if let Some(port) = ports.get(e) {
+                if ports.get(e).is_some() {
                     let contract_ui_elements =
                         find_ui_elements(&entities, &ui_transforms, "contract");
                     for c in contract_ui_elements {
@@ -94,7 +96,7 @@ impl<'s> System<'s> for PortPanelSystem {
                         find_ui_element(&entities, &ui_transforms, "port_info_name").unwrap();
 
                     if let Some(text) = ui_texts.get_mut(port_name_element) {
-                        text.text = port.name.clone();
+                        text.text = names.get(e).map_or("???".to_string(),|name| name.name.to_string());
                     };
 
                     let unexpired_contracts_held_by_port = (&entities, &contracts, &owned_bys)
@@ -118,7 +120,7 @@ impl<'s> System<'s> for PortPanelSystem {
                     let mut offset = 50.;
 
                     for (e, c) in unexpired_contracts_held_by_port {
-                        let destination_name = ports.get(c.destination).unwrap().name.clone();
+                        let destination_name = names.get(c.destination).unwrap().name.to_string();
 
                         let expiration_ui_space = if expirations.get(e).is_some() {
                             20.
