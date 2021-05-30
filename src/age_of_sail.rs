@@ -4,12 +4,12 @@ use std::{
 };
 
 use crate::components::{
-    bounding_box::BoundingBox, Action, Ai, AiState, Cargo, Contract, Controllable, Expiration,
+    Action, Affiliation, Ai, AiState, BoundingBox, Cargo, Contract, Controllable, Expiration,
     ItemType, OwnedBy, Patrol, Pirate, Port, Ship, StateQuery,
 };
 use amethyst::{
     assets::{AssetStorage, Handle, Loader},
-    core::{math::Point2, transform::Transform},
+    core::{math::Point2, transform::Transform, WithNamed},
     ecs::Join,
     prelude::*,
     renderer::{Camera, ImageFormat, SpriteRender, SpriteSheet, SpriteSheetFormat, Texture},
@@ -83,6 +83,10 @@ fn initialise_player(world: &mut World) -> () {
     world
         .create_entity()
         .with(Ship { base_speed: 10.0 })
+        .named("Dolphin")
+        .with(Affiliation {
+            name: "You".to_string(),
+        })
         .with(Controllable)
         .with(Cargo::default())
         .with(sprite_render.clone())
@@ -107,6 +111,10 @@ fn initialise_pirates(world: &mut World) {
     world
         .create_entity()
         .with(Ship { base_speed: 9.0 })
+        .named("Queen Anne's Revenge")
+        .with(Affiliation {
+            name: "Pirates".to_string(),
+        })
         .with(Pirate)
         .with(Ai {
             states: vec![
@@ -169,7 +177,7 @@ fn initialise_ports(world: &mut World) {
         .build();
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(350.0, 210.0, 0.0);
+    transform.set_translation_xyz(350.0, 110.0, 0.0);
     world
         .create_entity()
         .with(Port {

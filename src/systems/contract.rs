@@ -254,7 +254,7 @@ mod tests {
     use crate::components::{Cargo, Contract, ItemType, OwnedBy};
     use amethyst::{ecs::Entity, prelude::*, Result};
     use amethyst_test::prelude::*;
-    use chrono::{Date, TimeZone, Utc};
+    use chrono::{TimeZone, Utc};
     use std::collections::HashMap;
 
     #[test]

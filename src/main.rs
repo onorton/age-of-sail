@@ -14,7 +14,7 @@ use systems::{
     AiSystem, ChaseSystem, CollisionSystem, DestroySystemDesc, DockingSystem, ExpirationSystem,
     ExpireContractSystem, FulfillContractSystem, GameSpeedSystemDesc, NotificationSystem,
     PatrolSystem, PlayerStatusSystemDesc, PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem,
-    UpdateTimeSystem,
+    SelectShipSystem, ShipPanelSystemDesc, UpdateTimeSystem,
 };
 
 mod age_of_sail;
@@ -60,6 +60,7 @@ fn main() -> amethyst::Result<()> {
         .with(DockingSystem, "docking", &[])
         .with(SelectSystem::default(), "select", &[])
         .with(SelectPortSystem, "select_port", &[])
+        .with(SelectShipSystem, "select_ship", &[])
         .with(CollisionSystem, "collision", &[])
         .with_system_desc(PlayerStatusSystemDesc::default(), "ui_player_status", &[])
         .with_system_desc(GameSpeedSystemDesc::default(), "ui_game_speed", &[])
@@ -67,7 +68,8 @@ fn main() -> amethyst::Result<()> {
         .with_system_desc(AcceptContractSystemDesc::default(), "accept_contract", &[])
         .with_system_desc(DestroySystemDesc::default(), "destroy", &[])
         .with(FulfillContractSystem, "fulfill_contract", &[])
-        .with_thread_local_desc(PortPanelSystemDesc::default());
+        .with_thread_local_desc(PortPanelSystemDesc::default())
+        .with_thread_local_desc(ShipPanelSystemDesc::default());
 
     let mut game = Application::new(resources, MainState, game_data)?;
     game.run();

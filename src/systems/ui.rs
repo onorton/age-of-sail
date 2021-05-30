@@ -1,6 +1,6 @@
 use ::amethyst::core::SystemDesc;
 use amethyst::{
-    core::{Parent, RunNowDesc, timing::Time},
+    core::{Parent, Named, RunNowDesc, timing::Time},
     ecs::{
         Entities, Entity, Join, Read, ReadExpect, ReadStorage, System, SystemData, World, Write,
         WriteStorage,
@@ -14,9 +14,9 @@ use amethyst::{
 
 use crate::{
     age_of_sail::{Date, PlayerStatus, UiAssets, Notifications},
-    components::{Contract, OwnedBy, Expiration},
+    components::{Affiliation, Contract, Controllable, Port, Ship, Cargo, OwnedBy, Expiration},
+    event::UiUpdateEvent,
 };
-use crate::{components::Port, event::UiUpdateEvent};
 
 const NOTIFICATION_TIME: f32 = 5.0;
 
@@ -77,8 +77,10 @@ impl<'s> System<'s> for PortPanelSystem {
                 let e = if ports.get(target).is_some() {
                     self.selected_port.replace(target);
                     target
-                } else {
+                } else if contracts.get(target).is_some() {
                     self.selected_port.unwrap_or(target)
+                } else {
+                    target
                 };
 
                 if let Some(port) = ports.get(e) {
@@ -370,6 +372,9 @@ impl<'s> System<'s> for PortPanelSystem {
     }
 }
 
+
+
+
 pub struct PortPanelSystemDesc;
 
 impl Default for PortPanelSystemDesc {
@@ -393,6 +398,207 @@ impl<'a, 'b> SystemDesc<'a, 'b, PortPanelSystem> for PortPanelSystemDesc {
 impl<'a, 'b> RunNowDesc<'a, 'b, PortPanelSystem> for PortPanelSystemDesc {
     fn build(self, world: &mut World) -> PortPanelSystem {
         <PortPanelSystemDesc as SystemDesc<'a, 'b, PortPanelSystem>>::build(self, world)
+    }
+}
+
+pub struct ShipPanelSystem {
+    reader_id: ReaderId<UiUpdateEvent>,
+    selected_ship: Option<Entity>,
+}
+
+impl ShipPanelSystem {
+    fn new(reader_id: ReaderId<UiUpdateEvent>) -> Self {
+        ShipPanelSystem {
+            reader_id,
+            selected_ship: None,
+        }
+    }
+}
+
+impl<'s> System<'s> for ShipPanelSystem {
+    type SystemData = (
+        Entities<'s>,
+        ReadStorage<'s, Ship>,
+        ReadStorage<'s, Affiliation>,
+        ReadStorage<'s, Cargo>,
+        ReadStorage<'s, Controllable>,
+        ReadStorage<'s, Named>,
+        Read<'s, EventChannel<UiUpdateEvent>>,
+        WriteStorage<'s, UiText>,
+        WriteStorage<'s, UiTransform>,
+        WriteStorage<'s, Parent>,
+        ReadExpect<'s, UiAssets>,
+    );
+
+    fn run(
+        &mut self,
+        (
+            entities,
+            ships,
+            affiliations,
+            cargos,
+            controllables,
+            nameds,
+            channel,
+            mut ui_texts,
+            mut ui_transforms,
+            mut parents,
+            ui_assets,
+        ): Self::SystemData,
+    ) {
+        for event in channel.read(&mut self.reader_id) {
+
+            let target = match event {
+                UiUpdateEvent::Target(e) => Some(*e),
+                UiUpdateEvent::Deselected(e) => {
+                    if let Some(selected_ship) = self.selected_ship {
+                        if selected_ship == *e {
+                            self.selected_ship = None;
+                            let cargo_uis = find_ui_elements(&entities, &ui_transforms, "ship_info_cargo");
+                            for cargo_ui in cargo_uis {
+                                entities.delete(cargo_ui).unwrap();
+                            };
+
+                            let ship_name_element =
+                                find_ui_element(&entities, &ui_transforms, "ship_info_name").unwrap();
+
+                            if let Some(text) = ui_texts.get_mut(ship_name_element) {
+                                text.text = "".to_string(); 
+                            };
+                            
+                             let ship_affiliation_element =
+                                find_ui_element(&entities, &ui_transforms, "ship_info_affiliation").unwrap();
+
+                            if let Some(text) = ui_texts.get_mut(ship_affiliation_element) {
+                                text.text = "".to_string(); 
+                            }
+                        };
+                    };
+                    None
+                },
+                _ => None,
+            };
+
+            if let Some(target) = target {
+                let e = if ships.get(target).is_some() {
+                    self.selected_ship.replace(target);
+                    target
+                } else {
+                    self.selected_ship.unwrap_or(target)
+                };
+
+                if ships.get(e).is_some() {
+                    let cargo_uis = find_ui_elements(&entities, &ui_transforms, "ship_info_cargo");
+                    for cargo_ui in cargo_uis {
+                        entities.delete(cargo_ui).unwrap();
+                    };
+
+                    let ship_name_element =
+                        find_ui_element(&entities, &ui_transforms, "ship_info_name").unwrap();
+
+                    if let Some(text) = ui_texts.get_mut(ship_name_element) {
+                        text.text = if let Some(named) = nameds.get(e) { 
+                            named.name.to_string()
+                        } else {
+                            "???".to_string()
+                        }
+                    };
+
+                    let ship_affiliation_element =
+                        find_ui_element(&entities, &ui_transforms, "ship_info_affiliation").unwrap();
+
+                    if let Some(text) = ui_texts.get_mut(ship_affiliation_element) {
+                        text.text = if let Some(affiliation) = affiliations.get(e) { 
+                            affiliation.name.to_string()
+                        } else {
+                            "???".to_string()
+                        }
+                    };
+
+                    // Player can only see cargo in ships they control. May change later
+                    if controllables.get(e).is_some() {
+                        if let Some(cargo) = cargos.get(e) {
+                            let ship_info_container =
+                                find_ui_element(&entities, &ui_transforms, "ship_info").unwrap();
+
+                            let mut offset = 80.;
+                            
+                            for (item, amount) in &cargo.items {
+                                if *amount == 0 {
+                                    continue;
+                                }
+                                entities
+                                    .build_entity()
+                                    .with(
+                                        UiText::new(
+                                            ui_assets.font.clone(),
+                                            format!("{}: {} tons", item, amount),
+                                            [1.0, 1.0, 1.0, 1.0],
+                                            15.,
+                                            LineMode::Single,
+                                            Anchor::Middle,
+                                        ),
+                                        &mut ui_texts,
+                                    )
+                                    .with(
+                                        UiTransform::new(
+                                            "ship_info_cargo".to_string(),
+                                            Anchor::TopMiddle,
+                                            Anchor::TopMiddle,
+                                            0.,
+                                            -offset,
+                                            1.,
+                                            155.,
+                                            20.,
+                                        ),
+                                        &mut ui_transforms,
+                                    )
+                                    .with(
+                                        Parent {
+                                            entity: ship_info_container,
+                                        },
+                                        &mut parents,
+                                    )
+                                    .build();
+
+                                offset += 20.;
+                            }
+                        }
+                    }
+                     
+                }
+
+            }
+        }
+    }
+}
+
+
+
+
+pub struct ShipPanelSystemDesc;
+
+impl Default for ShipPanelSystemDesc {
+    fn default() -> Self {
+        ShipPanelSystemDesc {}
+    }
+}
+
+impl<'a, 'b> SystemDesc<'a, 'b, ShipPanelSystem> for ShipPanelSystemDesc {
+    fn build(self, world: &mut World) -> ShipPanelSystem {
+        <ShipPanelSystem as System<'_>>::SystemData::setup(world);
+
+        let reader_id = world
+            .fetch_mut::<EventChannel<UiUpdateEvent>>()
+            .register_reader();
+
+        ShipPanelSystem::new(reader_id)
+    }
+}
+
+impl<'a, 'b> RunNowDesc<'a, 'b, ShipPanelSystem> for ShipPanelSystemDesc {
+    fn build(self, world: &mut World) -> ShipPanelSystem {
+        <ShipPanelSystemDesc as SystemDesc<'a, 'b, ShipPanelSystem>>::build(self, world)
     }
 }
 

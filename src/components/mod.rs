@@ -7,7 +7,7 @@ pub use self::expiration::Expiration;
 pub use self::owned_by::OwnedBy;
 pub use self::port::Port;
 pub use self::selection::{Controllable, Selected};
-pub use self::ship::{Pirate, Ship};
+pub use self::ship::{Affiliation, Pirate, Ship};
 
 pub mod ai;
 pub mod bounding_box;

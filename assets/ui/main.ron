@@ -80,6 +80,77 @@ Container(
            )
         ),
 
+        Container(
+            transform: (
+                id: "ship_info",
+                anchor: TopRight,
+                pivot: TopRight,
+                x: -10.,
+                y: -80.,
+                z: 0.,
+                width: 180.,
+                height: 200.,
+            ),
+            background:
+                NineSlice(
+                        x_start: 0,
+                        y_start: 0,
+                        width: 64,
+                        height: 64,
+                        left_dist: 8,
+                        right_dist: 8,
+                        top_dist: 8,
+                        bottom_dist: 8,
+                        tex: File("texture/panel.png", ("IMAGE", ())),
+                        texture_dimensions: (64,64),
+                ),
+            children: [
+                 Label(
+                    transform: (
+                        id: "ship_info_name",
+                        x: 0.,
+                        y: -12.,
+                        z: 1.,
+                        width: 180.,
+                        height: 40.,
+                        tab_order: 0,
+                        anchor: TopLeft,
+                        pivot: TopLeft,
+                        opaque: false,
+                    ),
+                    text: (
+                        text: "",
+                        font: File("font/square.ttf", ("TTF", ())),
+                        font_size: 20.,
+                        color: (1.0, 1.0, 1.0, 1.0),
+                        line_mode: Wrap
+                    ), 
+                ),
+                Label(
+                    transform: (
+                        id: "ship_info_affiliation",
+                        x: 0.,
+                        y: -55.,
+                        z: 1.,
+                        width: 180.,
+                        height: 20.,
+                        tab_order: 0,
+                        anchor: TopLeft,
+                        pivot: TopLeft,
+                        opaque: false,
+                    ),
+                    text: (
+                        text: "",
+                        font: File("font/square.ttf", ("TTF", ())),
+                        font_size: 15.,
+                        color: (1.0, 1.0, 1.0, 1.0),
+                        line_mode: Wrap
+                    ),
+            
+                )
+
+            ]
+        ),
 
         Container(    
             transform: (
@@ -96,7 +167,7 @@ Container(
             children: [
                 Image(
                     transform: (
-                        id: "port_info_panel",
+                        id: "time_panel",
                         x: 0.,
                         y: 0.,
                         z: 0.,
