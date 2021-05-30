@@ -8,6 +8,18 @@ pub struct Contract {
     pub payment: u32,
     pub destination: Entity,
     pub goods_required: HashMap<ItemType, u32>,
+    pub fulfilled: bool,
+}
+
+impl Contract {
+    pub fn new(payment: u32, destination: Entity, goods_required: HashMap<ItemType, u32>) -> Self {
+        Contract {
+            payment,
+            destination,
+            goods_required,
+            fulfilled: false,
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy, Debug)]

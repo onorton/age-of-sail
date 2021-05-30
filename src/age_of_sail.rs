@@ -240,11 +240,11 @@ fn initialise_contracts(world: &mut World) {
 
             let contract = world
                 .create_entity()
-                .with(Contract {
-                    payment: rng.gen_range(10..100) * 10,
+                .with(Contract::new(
+                    rng.gen_range(10..100) * 10,
                     destination,
                     goods_required,
-                })
+                ))
                 .with(OwnedBy { entity: *p });
 
             if rng.gen_bool(0.3) {

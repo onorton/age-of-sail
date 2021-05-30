@@ -460,16 +460,16 @@ impl<'s> System<'s> for ContractPanelSystem {
                         entities.delete(c).unwrap();
                     }
 
-                    let unexpired_contracts_held_by_player = (&entities, &contracts, !&owned_bys)
+                    let active_contracts_held_by_player = (&entities, &contracts, !&owned_bys)
                         .join()
-                        .filter(|(entity, _, _)| 
+                        .filter(|(entity, contract, _)| 
                             { 
                                 let expired = if let Some(expiration) = expirations.get(*entity) {
                                     expiration.expired
                                 } else {
                                     false
                                 };
-                                return !expired;
+                                return !expired && !contract.fulfilled;
 
                         })
                         .map(|(e, c, _)| (e, c))
@@ -480,7 +480,7 @@ impl<'s> System<'s> for ContractPanelSystem {
 
                     let mut offset = 50.;
 
-                    for (e, c) in unexpired_contracts_held_by_player {
+                    for (e, c) in active_contracts_held_by_player {
                         let destination_name = names.get(c.destination).unwrap().name.to_string();
 
                         let expiration_ui_space = if expirations.get(e).is_some() {
