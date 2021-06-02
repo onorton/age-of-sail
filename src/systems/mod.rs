@@ -1,4 +1,5 @@
 pub use self::ai::AiSystem;
+pub use self::camera::PanningSystem;
 pub use self::collision::{CollisionSystem, DestroySystemDesc};
 pub use self::contract::{AcceptContractSystemDesc, ExpireContractSystem, FulfillContractSystem};
 pub use self::move_ships::{
@@ -12,6 +13,7 @@ pub use self::ui::{
 };
 
 mod ai;
+mod camera;
 mod collision;
 mod contract;
 mod move_ships;

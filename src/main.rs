@@ -13,7 +13,7 @@ use amethyst::{
 use systems::{
     AiSystem, ChaseSystem, CollisionSystem, ContractPanelSystemDesc, DestroySystemDesc,
     DockingSystem, ExpirationSystem, ExpireContractSystem, FulfillContractSystem,
-    GameSpeedSystemDesc, NotificationSystem, PatrolSystem, PlayerStatusSystemDesc,
+    GameSpeedSystemDesc, NotificationSystem, PanningSystem, PatrolSystem, PlayerStatusSystemDesc,
     PlotCourseSystem, PortPanelSystemDesc, SelectPortSystem, SelectShipSystem, ShipPanelSystemDesc,
     UpdateTimeSystem,
 };
@@ -71,7 +71,8 @@ fn main() -> amethyst::Result<()> {
         .with(FulfillContractSystem, "fulfill_contract", &[])
         .with_thread_local_desc(PortPanelSystemDesc::default())
         .with_thread_local_desc(ShipPanelSystemDesc::default())
-        .with_thread_local_desc(ContractPanelSystemDesc::default());
+        .with_thread_local_desc(ContractPanelSystemDesc::default())
+        .with_thread_local(PanningSystem);
 
     let mut game = Application::new(resources, MainState, game_data)?;
     game.run();
