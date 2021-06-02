@@ -1,18 +1,10 @@
 use amethyst::{
     core::{Time, Transform},
-    ecs::{Entities, Join, Read, ReadExpect, ReadStorage, System, Write, WriteStorage},
+    ecs::{Join, Read, ReadExpect, ReadStorage, System, WriteStorage},
     input::{InputHandler, StringBindings},
     renderer::Camera,
-    shrev::EventChannel,
     window::ScreenDimensions,
-    winit::MouseButton,
 };
-
-use crate::{
-    age_of_sail::{point_in_rect, point_mouse_to_world},
-    components::{Port, Selected, Ship},
-};
-use crate::{components::bounding_box::BoundingBox, event::UiUpdateEvent};
 
 const CAMERA_SPEED: f32 = 30.0;
 const PANNING_REGION_PIXELS: f32 = 15.0;

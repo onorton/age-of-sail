@@ -9,7 +9,11 @@ use crate::components::{
 };
 use amethyst::{
     assets::{AssetStorage, Handle, Loader},
-    core::{math::Point2, transform::Transform, WithNamed},
+    core::{
+        math::{Point2, Vector3},
+        transform::Transform,
+        WithNamed,
+    },
     ecs::Join,
     prelude::*,
     renderer::{Camera, ImageFormat, SpriteRender, SpriteSheet, SpriteSheetFormat, Texture},
@@ -304,10 +308,12 @@ pub fn point_mouse_to_world(
     mouse_x: f32,
     mouse_y: f32,
     screen_dimensions: &ScreenDimensions,
+    camera_position: &Vector3<f32>,
 ) -> Point2<f32> {
     Point2::new(
-        WORLD_WIDTH * mouse_x / screen_dimensions.width(),
-        WORLD_HEIGHT - WORLD_HEIGHT * mouse_y / screen_dimensions.height(),
+        WORLD_WIDTH * mouse_x / screen_dimensions.width() + (camera_position.x - WORLD_WIDTH / 2.0),
+        WORLD_HEIGHT - WORLD_HEIGHT * mouse_y / screen_dimensions.height()
+            + (camera_position.y - WORLD_HEIGHT / 2.0),
     )
 }
 

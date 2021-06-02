@@ -12,6 +12,7 @@ use amethyst::{
     input::{InputHandler, StringBindings, VirtualKeyCode},
     window::ScreenDimensions,
     winit::MouseButton,
+    renderer::Camera,
 };
 
 use crate::{
@@ -189,6 +190,7 @@ pub struct PlotCourseSystem;
 impl<'s> System<'s> for PlotCourseSystem {
     type SystemData = (
         Entities<'s>,
+        ReadStorage<'s, Camera>,
         ReadStorage<'s, Ship>,
         ReadStorage<'s, Transform>,
         ReadStorage<'s, Selected>,
@@ -200,45 +202,47 @@ impl<'s> System<'s> for PlotCourseSystem {
 
     fn run(
         &mut self,
-        (entities, ships, locals, selecteds, controllables, mut courses, input, screen_dimensions): Self::SystemData,
+        (entities, cameras, ships, locals, selecteds, controllables, mut courses, input, screen_dimensions): Self::SystemData,
     ) {
-        for (e, _, _, _) in (&entities, &ships, &selecteds, &controllables).join() {
-            if let Some((mouse_x, mouse_y)) = input.mouse_position() {
-                if input.mouse_button_is_down(MouseButton::Right) {
-                    let point_in_world =
-                        point_mouse_to_world(mouse_x, mouse_y, &*screen_dimensions);
+        for (_, camera_local) in (&cameras, &locals).join() {
+            for (e, _, _, _) in (&entities, &ships, &selecteds, &controllables).join() {
+                if let Some((mouse_x, mouse_y)) = input.mouse_position() {
+                    if input.mouse_button_is_down(MouseButton::Right) {
+                        let point_in_world =
+                            point_mouse_to_world(mouse_x, mouse_y, &*screen_dimensions, camera_local.translation());
 
-                    // Snap to any entity if close enough
-                    let point = &locals
-                        .join()
-                        .map(|l| Point2::new(l.translation().x, l.translation().y))
-                        .filter(|p| point_in_world.distance(p) < SNAP_THRESHOLD)
-                        .next()
-                        .unwrap_or(point_in_world);
+                        // Snap to any entity if close enough
+                        let point = &locals
+                            .join()
+                            .map(|l| Point2::new(l.translation().x, l.translation().y))
+                            .filter(|p| point_in_world.distance(p) < SNAP_THRESHOLD)
+                            .next()
+                            .unwrap_or(point_in_world);
 
-                    if !input.key_is_down(VirtualKeyCode::LShift) {
-                        courses
-                            .insert(
-                                e,
-                                Course {
-                                    waypoints: vec![*point],
-                                    next_waypoint_index: Some(0),
-                                },
-                            )
-                            .unwrap();
-                    } else {
-                        match courses.get_mut(e) {
-                            Some(c) => c.waypoints.push(*point),
-                            None => {
-                                courses
-                                    .insert(
-                                        e,
-                                        Course {
-                                            waypoints: vec![*point],
-                                            next_waypoint_index: Some(0),
-                                        },
-                                    )
-                                    .unwrap();
+                        if !input.key_is_down(VirtualKeyCode::LShift) {
+                            courses
+                                .insert(
+                                    e,
+                                    Course {
+                                        waypoints: vec![*point],
+                                        next_waypoint_index: Some(0),
+                                    },
+                                )
+                                .unwrap();
+                        } else {
+                            match courses.get_mut(e) {
+                                Some(c) => c.waypoints.push(*point),
+                                None => {
+                                    courses
+                                        .insert(
+                                            e,
+                                            Course {
+                                                waypoints: vec![*point],
+                                                next_waypoint_index: Some(0),
+                                            },
+                                        )
+                                        .unwrap();
+                                }
                             }
                         }
                     }

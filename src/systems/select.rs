@@ -3,6 +3,7 @@ use amethyst::{
     ecs::{Entities, Join, Read, ReadExpect, ReadStorage, System, Write, WriteStorage},
     input::{InputHandler, StringBindings},
     shrev::EventChannel,
+    renderer::Camera,
     window::ScreenDimensions,
     winit::MouseButton,
 };
@@ -21,6 +22,7 @@ pub struct SelectSystem {
 impl<'s> System<'s> for SelectSystem {
     type SystemData = (
         Entities<'s>,
+        ReadStorage<'s, Camera>,
         ReadStorage<'s, BoundingBox>,
         ReadStorage<'s, Transform>,
         WriteStorage<'s, Selected>,
@@ -33,6 +35,7 @@ impl<'s> System<'s> for SelectSystem {
         &mut self,
         (
             entities,
+            cameras,
             bounding_boxes,
             locals,
             mut selecteds,
@@ -56,19 +59,21 @@ impl<'s> System<'s> for SelectSystem {
             self.currently_selecting = false;
         }
 
-        for (e, bounding_box, local) in (&entities, &bounding_boxes, &locals).join() {
-            if let Some((mouse_x, mouse_y)) = input.mouse_position() {
-                let (left, right, top, bottom) = bounding_box.as_boundaries(local);
-                if point_in_rect(
-                    point_mouse_to_world(mouse_x, mouse_y, &*screen_dimensions),
-                    left,
-                    right,
-                    top,
-                    bottom,
-                ) && input.mouse_button_is_down(MouseButton::Left)
-                {
-                    self.currently_selecting = true;
-                    selecteds.insert(e, Selected::default()).unwrap();
+        for (_, camera_local) in (&cameras, &locals).join() {
+            for (e, bounding_box, local) in (&entities, &bounding_boxes, &locals).join() {
+                if let Some((mouse_x, mouse_y)) = input.mouse_position() {
+                    let (left, right, top, bottom) = bounding_box.as_boundaries(local);
+                    if point_in_rect(
+                        point_mouse_to_world(mouse_x, mouse_y, &*screen_dimensions, camera_local.translation()),
+                        left,
+                        right,
+                        top,
+                        bottom,
+                    ) && input.mouse_button_is_down(MouseButton::Left)
+                    {
+                        self.currently_selecting = true;
+                        selecteds.insert(e, Selected::default()).unwrap();
+                    }
                 }
             }
         }
