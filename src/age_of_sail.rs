@@ -8,20 +8,30 @@ use crate::components::{
     ItemType, OwnedBy, Patrol, Pirate, Port, Ship, StateQuery,
 };
 use amethyst::{
-    assets::{AssetStorage, Handle, Loader},
+    assets::{AssetLoaderSystemData, AssetStorage, Handle, Loader},
     core::{
-        math::{Point2, Vector3},
+        math::{Point2, Point3, Vector3},
         transform::Transform,
         WithNamed,
     },
     ecs::Join,
     prelude::*,
-    renderer::{Camera, ImageFormat, SpriteRender, SpriteSheet, SpriteSheetFormat, Texture},
+    renderer::{
+        palette::LinSrgba,
+        rendy::{
+            mesh::{Position, TexCoord},
+            texture::palette::load_from_linear_rgba,
+        },
+        visibility::BoundingSphere,
+        Camera, ImageFormat, Material, MaterialDefaults, Mesh, SpriteRender, SpriteSheet,
+        SpriteSheetFormat, Texture,
+    },
     ui::{FontAsset, TtfFormat, UiCreator},
     window::ScreenDimensions,
 };
 use chrono::{Duration, TimeZone, Utc};
 use rand::{seq::SliceRandom, thread_rng, Rng};
+use std::iter;
 
 pub const WORLD_WIDTH: f32 = 400.0;
 pub const WORLD_HEIGHT: f32 = 300.0;
@@ -63,6 +73,7 @@ impl SimpleState for MainState {
 
         world.insert(Date::default());
 
+        initialise_map(world);
         initialise_ports(world);
         initialise_contracts(world);
         initialise_player(world);
@@ -269,13 +280,78 @@ fn initialise_contracts(world: &mut World) {
 
 fn initialise_camera(world: &mut World) {
     let mut transform = Transform::default();
-    transform.set_translation_xyz(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5, 1.0);
+    transform.set_translation_xyz(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5, 10.0);
 
     world
         .create_entity()
         .with(Camera::standard_2d(WORLD_WIDTH, WORLD_HEIGHT))
         .with(transform)
         .build();
+}
+
+fn initialise_map(world: &mut World) {
+    let map = Map {
+        islands: vec![vec![
+            Point2::new(150.0, 200.0),
+            Point2::new(150.0, 150.0),
+            Point2::new(180.0, 150.0),
+            Point2::new(180.0, 150.0),
+            Point2::new(150.0, 150.0),
+            Point2::new(175.0, 100.0),
+        ]],
+    };
+
+    let map_vertices = map.into_vertices();
+    let num_map_vertices = map_vertices.len();
+
+    let mesh = world.exec(|loader: AssetLoaderSystemData<Mesh>| {
+        loader.load_from_data(
+            amethyst::renderer::types::MeshData(
+                (
+                    map_vertices,
+                    iter::repeat(TexCoord([0.0, 0.0]))
+                        .take(num_map_vertices)
+                        .collect::<Vec<_>>(),
+                )
+                    .into(),
+            ),
+            (),
+        )
+    });
+
+    let default_mat = world.read_resource::<MaterialDefaults>().0.clone();
+
+    let albedo = world.exec(|loader: AssetLoaderSystemData<Texture>| {
+        loader.load_from_data(
+            load_from_linear_rgba(LinSrgba::new(0.14, 0.6, 0.2, 1.0)).into(),
+            (),
+        )
+    });
+
+    let mat = world.exec(|loader: AssetLoaderSystemData<Material>| {
+        loader.load_from_data(
+            Material {
+                albedo,
+                ..default_mat.clone()
+            },
+            (),
+        )
+    });
+
+    let transform = Transform::default();
+
+    world
+        .create_entity()
+        .with(mat)
+        .with(mesh)
+        .with(BoundingSphere {
+            center: Point3::origin(),
+            radius: 1000.0,
+        })
+        .with(transform)
+        .build();
+
+    world.insert(map);
 }
 
 fn load_sprite_sheet(world: &mut World) -> Handle<SpriteSheet> {
@@ -315,6 +391,20 @@ pub fn point_mouse_to_world(
         WORLD_HEIGHT - WORLD_HEIGHT * mouse_y / screen_dimensions.height()
             + (camera_position.y - WORLD_HEIGHT / 2.0),
     )
+}
+
+#[derive(Default)]
+pub struct Map {
+    pub islands: Vec<Vec<Point2<f32>>>,
+}
+
+impl Map {
+    fn into_vertices(&self) -> Vec<Position> {
+        self.islands
+            .iter()
+            .flat_map(|island| island.iter().map(|&p| Position([p.x, p.y, 0.0])).clone())
+            .collect::<Vec<_>>()
+    }
 }
 
 #[derive(Default)]

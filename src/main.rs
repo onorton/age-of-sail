@@ -3,7 +3,7 @@ use amethyst::{
     input::{InputBundle, StringBindings},
     prelude::*,
     renderer::{
-        plugins::{RenderFlat2D, RenderToWindow},
+        plugins::{RenderFlat2D, RenderFlat3D, RenderToWindow},
         types::DefaultBackend,
         RenderingBundle,
     },
@@ -48,7 +48,8 @@ fn main() -> amethyst::Result<()> {
                         .with_clear([0.0, 0.0, 0.5, 1.0]),
                 )
                 .with_plugin(RenderUi::default())
-                .with_plugin(RenderFlat2D::default()),
+                .with_plugin(RenderFlat2D::default())
+                .with_plugin(RenderFlat3D::default()),
         )?
         .with(UpdateTimeSystem, "time", &[])
         .with(ExpirationSystem, "expiration", &[])
