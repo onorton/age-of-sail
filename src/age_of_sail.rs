@@ -300,6 +300,7 @@ fn initialise_map(world: &mut World) {
             Point2::new(175.0, 100.0),
         ]],
     };
+    println!("{}", map.on_land(Point2::new(160.0, 175.0)));
 
     let map_vertices = map.into_vertices();
     let num_map_vertices = map_vertices.len();
@@ -404,6 +405,28 @@ impl Map {
             .iter()
             .flat_map(|island| island.iter().map(|&p| Position([p.x, p.y, 0.0])).clone())
             .collect::<Vec<_>>()
+    }
+
+    fn on_land(&self, point: Point2<f32>) -> bool {
+        self.islands.iter().any(|island| {
+            island.chunks(3).any(|triangle| {
+                let a = triangle[0];
+                let b = triangle[1];
+                let c = triangle[2];
+                let a_b = b - a;
+                let b_c = c - b;
+                let c_a = a - c;
+                let a_p = point - a;
+                let b_p = point - b;
+                let c_p = point - c;
+
+                let a_cross = a_b.x * a_p.y - a_b.y * a_p.x;
+                let b_cross = b_c.x * b_p.y - b_c.y * b_p.x;
+                let c_cross = c_a.x * c_p.y - c_a.y * c_p.x;
+
+                a_cross.signum() == b_cross.signum() && a_cross.signum() == c_cross.signum()
+            })
+        })
     }
 }
 
