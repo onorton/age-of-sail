@@ -10,7 +10,7 @@ use crate::components::{
 use amethyst::{
     assets::{AssetLoaderSystemData, AssetStorage, Handle, Loader},
     core::{
-        math::{Point2, Point3, Vector3},
+        math::{distance, Point2, Point3, Vector3},
         transform::Transform,
         WithNamed,
     },
@@ -292,15 +292,14 @@ fn initialise_camera(world: &mut World) {
 fn initialise_map(world: &mut World) {
     let map = Map {
         islands: vec![vec![
-            Point2::new(150.0, 200.0),
-            Point2::new(150.0, 150.0),
-            Point2::new(180.0, 150.0),
-            Point2::new(180.0, 150.0),
-            Point2::new(150.0, 150.0),
-            Point2::new(175.0, 100.0),
+            Point2::new(150, 200),
+            Point2::new(150, 150),
+            Point2::new(180, 150),
+            Point2::new(180, 150),
+            Point2::new(150, 150),
+            Point2::new(175, 100),
         ]],
     };
-    println!("{}", map.on_land(Point2::new(160.0, 175.0)));
 
     let map_vertices = map.into_vertices();
     let num_map_vertices = map_vertices.len();
@@ -396,23 +395,35 @@ pub fn point_mouse_to_world(
 
 #[derive(Default)]
 pub struct Map {
-    pub islands: Vec<Vec<Point2<f32>>>,
+    pub islands: Vec<Vec<Point2<i32>>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Edge(Point2<i32>, Point2<i32>);
+
+fn to_f32(point: Point2<i32>) -> Point2<f32> {
+    Point2::new(point.x as f32, point.y as f32)
 }
 
 impl Map {
     fn into_vertices(&self) -> Vec<Position> {
         self.islands
             .iter()
-            .flat_map(|island| island.iter().map(|&p| Position([p.x, p.y, 0.0])).clone())
+            .flat_map(|island| {
+                island
+                    .iter()
+                    .map(|&p| Position([p.x as f32, p.y as f32, 0.0]))
+                    .clone()
+            })
             .collect::<Vec<_>>()
     }
 
-    fn on_land(&self, point: Point2<f32>) -> bool {
+    pub fn on_land(&self, point: Point2<f32>) -> bool {
         self.islands.iter().any(|island| {
             island.chunks(3).any(|triangle| {
-                let a = triangle[0];
-                let b = triangle[1];
-                let c = triangle[2];
+                let a = to_f32(triangle[0]);
+                let b = to_f32(triangle[1]);
+                let c = to_f32(triangle[2]);
                 let a_b = b - a;
                 let b_c = c - b;
                 let c_a = a - c;
@@ -427,6 +438,69 @@ impl Map {
                 a_cross.signum() == b_cross.signum() && a_cross.signum() == c_cross.signum()
             })
         })
+    }
+
+    pub fn closest_point_on_edge(&self, point: Point2<f32>) -> Point2<f32> {
+        let outer_edges = self
+            .islands
+            .iter()
+            .flat_map(|island| {
+                let island_edges = island.chunks(3).flat_map(|triangle| {
+                    vec![
+                        Edge(triangle[0], triangle[1]),
+                        Edge(triangle[1], triangle[2]),
+                        Edge(triangle[2], triangle[0]),
+                    ]
+                });
+
+                let mut island_outer_edges = HashMap::<Edge, usize>::new();
+                for island_edge in island_edges {
+                    let reverse_island_edge = Edge(island_edge.1, island_edge.0);
+
+                    // Check both orders of points
+                    let edge_count = island_outer_edges.get(&island_edge).map_or(0, |v| *v);
+                    let reverse_edge_count = island_outer_edges
+                        .get(&reverse_island_edge)
+                        .map_or(0, |v| *v);
+
+                    if edge_count > 0 {
+                        island_outer_edges.insert(island_edge, edge_count + 1);
+                    } else if reverse_edge_count > 0 {
+                        island_outer_edges.insert(reverse_island_edge, reverse_edge_count + 1);
+                    } else {
+                        island_outer_edges.insert(island_edge, 1);
+                    }
+                }
+                island_outer_edges
+                    .iter()
+                    .filter(|(_, &count)| count == 1)
+                    .map(|(edge, _)| *edge)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<Edge>>();
+        let mut closest_point = (Point2::<f32>::origin(), f32::MAX);
+
+        for outer_edge in outer_edges {
+            let edge = (to_f32(outer_edge.0), to_f32(outer_edge.1));
+            let distance_squared = distance(&edge.0, &edge.1).powf(2.0);
+
+            let t = (point - edge.0).dot(&(edge.1 - edge.0)) / distance_squared;
+            let clamped_t = if t > 1.0 {
+                1.0
+            } else if t < 0.0 {
+                0.0
+            } else {
+                t
+            };
+
+            let closest_point_for_edge = edge.0 + clamped_t * (&(edge.1 - edge.0));
+            let distance = distance(&closest_point_for_edge, &point);
+            if distance < closest_point.1 {
+                closest_point = (closest_point_for_edge, distance);
+            }
+        }
+
+        closest_point.0
     }
 }
 

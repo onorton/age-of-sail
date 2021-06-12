@@ -16,7 +16,7 @@ use amethyst::{
 };
 
 use crate::{
-    age_of_sail::{Notifications, point_mouse_to_world, DISTANCE_THRESHOLD},
+    age_of_sail::{Map, Notifications, point_mouse_to_world, DISTANCE_THRESHOLD},
     components::{Action, Ai, Cargo, Controllable, Course, Patrol, Port, Selected, Ship},
 };
 
@@ -197,12 +197,13 @@ impl<'s> System<'s> for PlotCourseSystem {
         ReadStorage<'s, Controllable>,
         WriteStorage<'s, Course>,
         Read<'s, InputHandler<StringBindings>>,
+        Read<'s, Map>,
         ReadExpect<'s, ScreenDimensions>,
     );
 
     fn run(
         &mut self,
-        (entities, cameras, ships, locals, selecteds, controllables, mut courses, input, screen_dimensions): Self::SystemData,
+        (entities, cameras, ships, locals, selecteds, controllables, mut courses, input, map, screen_dimensions): Self::SystemData,
     ) {
         for (_, camera_local) in (&cameras, &locals).join() {
             for (e, _, _, _) in (&entities, &ships, &selecteds, &controllables).join() {
@@ -219,25 +220,32 @@ impl<'s> System<'s> for PlotCourseSystem {
                             .next()
                             .unwrap_or(point_in_world);
 
+                        // Snap to edge of land if on land
+                        let point = if map.on_land(*point) {
+                            map.closest_point_on_edge(*point)
+                        } else {
+                            *point
+                        };
+                         
                         if !input.key_is_down(VirtualKeyCode::LShift) {
                             courses
                                 .insert(
                                     e,
                                     Course {
-                                        waypoints: vec![*point],
+                                        waypoints: vec![point],
                                         next_waypoint_index: Some(0),
                                     },
                                 )
                                 .unwrap();
                         } else {
                             match courses.get_mut(e) {
-                                Some(c) => c.waypoints.push(*point),
+                                Some(c) => c.waypoints.push(point),
                                 None => {
                                     courses
                                         .insert(
                                             e,
                                             Course {
-                                                waypoints: vec![*point],
+                                                waypoints: vec![point],
                                                 next_waypoint_index: Some(0),
                                             },
                                         )
