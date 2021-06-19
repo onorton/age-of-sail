@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ops::Add,
 };
 
@@ -10,7 +10,7 @@ use crate::components::{
 use amethyst::{
     assets::{AssetLoaderSystemData, AssetStorage, Handle, Loader},
     core::{
-        math::{distance, Point2, Point3, Vector3},
+        math::{distance, normalize, Point2, Point3, Vector2, Vector3},
         transform::Transform,
         WithNamed,
     },
@@ -292,12 +292,18 @@ fn initialise_camera(world: &mut World) {
 fn initialise_map(world: &mut World) {
     let map = Map {
         islands: vec![vec![
-            Point2::new(150, 200),
+            // Point2::new(150, 200),
+            // Point2::new(150, 150),
+            // Point2::new(180, 150),
+            // Point2::new(180, 150),
+            // Point2::new(150, 150),
+            // Point2::new(175, 100),
+            Point2::new(150, 180),
             Point2::new(150, 150),
             Point2::new(180, 150),
             Point2::new(180, 150),
             Point2::new(150, 150),
-            Point2::new(175, 100),
+            Point2::new(180, 120),
         ]],
     };
 
@@ -405,6 +411,10 @@ fn to_f32(point: Point2<i32>) -> Point2<f32> {
     Point2::new(point.x as f32, point.y as f32)
 }
 
+fn cross_2d(point_1: Vector2<f32>, point_2: Vector2<f32>) -> f32 {
+    point_1.x * point_2.y - point_1.y * point_2.x
+}
+
 impl Map {
     fn into_vertices(&self) -> Vec<Position> {
         self.islands
@@ -418,31 +428,8 @@ impl Map {
             .collect::<Vec<_>>()
     }
 
-    pub fn on_land(&self, point: Point2<f32>) -> bool {
-        self.islands.iter().any(|island| {
-            island.chunks(3).any(|triangle| {
-                let a = to_f32(triangle[0]);
-                let b = to_f32(triangle[1]);
-                let c = to_f32(triangle[2]);
-                let a_b = b - a;
-                let b_c = c - b;
-                let c_a = a - c;
-                let a_p = point - a;
-                let b_p = point - b;
-                let c_p = point - c;
-
-                let a_cross = a_b.x * a_p.y - a_b.y * a_p.x;
-                let b_cross = b_c.x * b_p.y - b_c.y * b_p.x;
-                let c_cross = c_a.x * c_p.y - c_a.y * c_p.x;
-
-                a_cross.signum() == b_cross.signum() && a_cross.signum() == c_cross.signum()
-            })
-        })
-    }
-
-    pub fn closest_point_on_edge(&self, point: Point2<f32>) -> Point2<f32> {
-        let outer_edges = self
-            .islands
+    fn outer_edges(&self) -> Vec<Edge> {
+        self.islands
             .iter()
             .flat_map(|island| {
                 let island_edges = island.chunks(3).flat_map(|triangle| {
@@ -477,7 +464,33 @@ impl Map {
                     .map(|(edge, _)| *edge)
                     .collect::<Vec<_>>()
             })
-            .collect::<Vec<Edge>>();
+            .collect::<Vec<Edge>>()
+    }
+
+    pub fn on_land(&self, point: Point2<f32>) -> bool {
+        self.islands.iter().any(|island| {
+            island.chunks(3).any(|triangle| {
+                let a = to_f32(triangle[0]);
+                let b = to_f32(triangle[1]);
+                let c = to_f32(triangle[2]);
+                let a_b = b - a;
+                let b_c = c - b;
+                let c_a = a - c;
+                let a_p = point - a;
+                let b_p = point - b;
+                let c_p = point - c;
+
+                let a_cross = cross_2d(a_b, a_p);
+                let b_cross = cross_2d(b_c, b_p);
+                let c_cross = cross_2d(c_a, c_p);
+
+                a_cross.signum() == b_cross.signum() && a_cross.signum() == c_cross.signum()
+            })
+        })
+    }
+
+    pub fn closest_point_on_edge(&self, point: Point2<f32>) -> Point2<f32> {
+        let outer_edges = self.outer_edges();
         let mut closest_point = (Point2::<f32>::origin(), f32::MAX);
 
         for outer_edge in outer_edges {
@@ -501,6 +514,129 @@ impl Map {
         }
 
         closest_point.0
+    }
+
+    pub fn closest_point_of_line_on_edge(
+        &self,
+        starting_point: Point2<f32>,
+        line_direction: Vector2<f32>,
+        strict: bool,
+    ) -> Option<Point2<f32>> {
+        let outer_edges = self.outer_edges();
+        let mut closest_point = (None, f32::MAX);
+
+        for outer_edge in outer_edges {
+            let edge_direction = to_f32(outer_edge.1) - to_f32(outer_edge.0);
+            let edge_starting_point = to_f32(outer_edge.0);
+
+            let cross_of_directions = cross_2d(line_direction, edge_direction);
+
+            let mut possible_point_on_edge = None;
+
+            if cross_of_directions == 0.0 {
+                // parallel
+                if cross_2d(edge_starting_point - starting_point, line_direction) == 0.0 {
+                    // colinear
+                    let t_0 = (edge_starting_point - starting_point).dot(&line_direction)
+                        / (line_direction.dot(&line_direction));
+
+                    let t_1 = t_0
+                        + edge_direction.dot(&line_direction)
+                            / (line_direction.dot(&line_direction));
+                    if t_1 <= 1.0 && t_1 >= 0.0 {
+                        let point_on_edge = Some(edge_starting_point + t_1 * edge_direction);
+                        if strict {
+                            if t_0 >= 0.0 && t_0 <= 1.0 {
+                                possible_point_on_edge = point_on_edge;
+                            }
+                        } else {
+                            possible_point_on_edge = point_on_edge;
+                        }
+                    }
+                }
+            } else {
+                // not parallel
+                let t = cross_2d(
+                    edge_starting_point - starting_point,
+                    edge_direction / cross_of_directions,
+                );
+                let u = cross_2d(
+                    edge_starting_point - starting_point,
+                    line_direction / cross_of_directions,
+                );
+
+                if u >= 0.0 && u <= 1.0 {
+                    let point_on_edge = Some(edge_starting_point + u * edge_direction);
+                    if strict {
+                        if t >= 0.0 && t <= 1.0 {
+                            possible_point_on_edge = point_on_edge;
+                        }
+                    } else {
+                        possible_point_on_edge = point_on_edge;
+                    }
+                }
+            }
+
+            if let Some(point_on_edge) = possible_point_on_edge {
+                let distance = distance(&point_on_edge, &starting_point);
+                if distance < closest_point.1 {
+                    closest_point = (Some(point_on_edge), distance);
+                }
+            }
+        }
+        closest_point.0
+    }
+
+    pub fn closest_corner_to_line(
+        &self,
+        starting_point: Point2<f32>,
+        line_direction: Vector2<f32>,
+        corners_visited: &HashSet<Point2<i32>>,
+    ) -> Option<(Point2<f32>, Point2<i32>)> {
+        let closest_point_on_edge =
+            self.closest_point_of_line_on_edge(starting_point, line_direction, false);
+
+        if let Some(closest_point_on_edge) = closest_point_on_edge {
+            let outer_edges = self.outer_edges();
+            outer_edges
+                .iter()
+                .flat_map(|&edge| {
+                    outer_edges
+                        .iter()
+                        .filter(move |&&other_edge| {
+                            edge != other_edge
+                                && (edge.0 == other_edge.1
+                                    || edge.0 == other_edge.0
+                                    || edge.1 == other_edge.0
+                                    || edge.1 == other_edge.1)
+                        })
+                        .map(move |&other_edge| {
+                            if edge.0 == other_edge.0 {
+                                (edge.0, edge, other_edge)
+                            } else if edge.0 == other_edge.1 {
+                                (edge.0, edge, Edge(other_edge.1, other_edge.0))
+                            } else if edge.1 == other_edge.0 {
+                                (edge.1, Edge(edge.1, edge.0), other_edge)
+                            } else {
+                                (
+                                    edge.1,
+                                    Edge(edge.1, edge.0),
+                                    Edge(other_edge.1, other_edge.0),
+                                )
+                            }
+                        })
+                })
+                .filter(|(c, _, _)| !corners_visited.contains(&c))
+                .min_by_key(|(c, _, _)| distance(&to_f32(*c), &closest_point_on_edge) as i32)
+                .map(|(c, edge, other_edge)| {
+                    let edge_direction = (to_f32(edge.0) - to_f32(edge.1)).normalize();
+                    let other_edge_direction =
+                        (to_f32(other_edge.0) - to_f32(other_edge.1)).normalize();
+                    (to_f32(c) + edge_direction + other_edge_direction, c)
+                })
+        } else {
+            None
+        }
     }
 }
 

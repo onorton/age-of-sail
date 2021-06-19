@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
+use std::collections::{HashSet, VecDeque};
 
 use amethyst::{
     core::{
         alga::linear::EuclideanSpace,
-        math::{Point2, Vector2},
+        math::{distance, Point2, Vector2},
         Time, Transform, Named
     },
     derive::SystemDesc,
@@ -206,7 +207,7 @@ impl<'s> System<'s> for PlotCourseSystem {
         (entities, cameras, ships, locals, selecteds, controllables, mut courses, input, map, screen_dimensions): Self::SystemData,
     ) {
         for (_, camera_local) in (&cameras, &locals).join() {
-            for (e, _, _, _) in (&entities, &ships, &selecteds, &controllables).join() {
+            for (e, local, _, _, _) in (&entities, &locals, &ships, &selecteds, &controllables).join() {
                 if let Some((mouse_x, mouse_y)) = input.mouse_position() {
                     if input.mouse_button_is_down(MouseButton::Right) {
                         let point_in_world =
@@ -226,26 +227,66 @@ impl<'s> System<'s> for PlotCourseSystem {
                         } else {
                             *point
                         };
+
+                        let mut points = VecDeque::new();
+        
+                        let ship_point = Point2::new(local.translation().x, local.translation().y);
+        
+                        points.push_back(ship_point);
+                        points.push_back(point);
+                        let mut visited_corners = HashSet::new();
+                        let mut path_does_not_pass_through_land = false;
+                        while !path_does_not_pass_through_land {
+                            path_does_not_pass_through_land = true;
+                            let mut updated_points = VecDeque::new();
+                            for point_pair in points.iter().collect::<Vec<_>>().windows(2) {
+                                let a = *(point_pair[0]);
+                                let b = *(point_pair[1]);
+
+                                updated_points.push_back(a);
+
+                                let line_direction = b - a;
+                                let intersects = map.closest_point_of_line_on_edge(a, line_direction, true).is_some(); 
+
+                                if intersects {
+                                    // Find nearest corner
+                                    let closest_corner = map.closest_corner_to_line(a, line_direction, &visited_corners);
+                                    if let Some((adjusted_closest_corner, closest_corner)) = closest_corner {
+                                        visited_corners.insert(closest_corner);
+                                        if adjusted_closest_corner != a && adjusted_closest_corner != b {
+                                            path_does_not_pass_through_land = false;
+                                            updated_points.push_back(adjusted_closest_corner);
+                                        }
+                                    }
+                                 }        
+                            }
+
+                            updated_points.push_back(*(points.back().unwrap()));
+                            points = updated_points;
+                        }
+                        points.pop_front();
+
+                        let mut points = points.iter().map(|p| *p).collect();
                          
                         if !input.key_is_down(VirtualKeyCode::LShift) {
                             courses
                                 .insert(
                                     e,
                                     Course {
-                                        waypoints: vec![point],
+                                        waypoints: points,
                                         next_waypoint_index: Some(0),
                                     },
                                 )
                                 .unwrap();
                         } else {
                             match courses.get_mut(e) {
-                                Some(c) => c.waypoints.push(point),
+                                Some(c) => c.waypoints.append(&mut points),
                                 None => {
                                     courses
                                         .insert(
                                             e,
                                             Course {
-                                                waypoints: vec![point],
+                                                waypoints: points,
                                                 next_waypoint_index: Some(0),
                                             },
                                         )
