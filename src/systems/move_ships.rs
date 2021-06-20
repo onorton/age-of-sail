@@ -1,11 +1,10 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
-use std::collections::{HashSet, VecDeque};
 
 use amethyst::{
     core::{
         alga::linear::EuclideanSpace,
-        math::{distance, Point2, Vector2},
+        math::{Point2, Vector2},
         Time, Transform, Named
     },
     derive::SystemDesc,
@@ -228,44 +227,14 @@ impl<'s> System<'s> for PlotCourseSystem {
                             *point
                         };
 
-                        let mut points = VecDeque::new();
-        
                         let ship_point = Point2::new(local.translation().x, local.translation().y);
-        
-                        points.push_back(ship_point);
-                        points.push_back(point);
-                        let mut visited_corners = HashSet::new();
-                        let mut path_does_not_pass_through_land = false;
-                        while !path_does_not_pass_through_land {
-                            path_does_not_pass_through_land = true;
-                            let mut updated_points = VecDeque::new();
-                            for point_pair in points.iter().collect::<Vec<_>>().windows(2) {
-                                let a = *(point_pair[0]);
-                                let b = *(point_pair[1]);
-
-                                updated_points.push_back(a);
-
-                                let line_direction = b - a;
-                                let intersects = map.closest_point_of_line_on_edge(a, line_direction, true).is_some(); 
-
-                                if intersects {
-                                    // Find nearest corner
-                                    let closest_corner = map.closest_corner_to_line(a, line_direction, &visited_corners);
-                                    if let Some((adjusted_closest_corner, closest_corner)) = closest_corner {
-                                        visited_corners.insert(closest_corner);
-                                        if adjusted_closest_corner != a && adjusted_closest_corner != b {
-                                            path_does_not_pass_through_land = false;
-                                            updated_points.push_back(adjusted_closest_corner);
-                                        }
-                                    }
-                                 }        
-                            }
-
-                            updated_points.push_back(*(points.back().unwrap()));
-                            points = updated_points;
-                        }
-                        points.pop_front();
-
+                        // Get corners and add edges between start and end and corners that are
+                        // reachable in a straight line
+                        let graph = map.nodes_and_edges_connected(vec![ship_point, point]); 
+                        
+                        // Solve A* to get points
+                        let points = graph.a_star(graph.nodes.len()-2, graph.nodes.len()-1);
+                       
                         let mut points = points.iter().map(|p| *p).collect();
                          
                         if !input.key_is_down(VirtualKeyCode::LShift) {

@@ -3,14 +3,17 @@ use std::{
     ops::Add,
 };
 
-use crate::components::{
-    Action, Affiliation, Ai, AiState, BoundingBox, Cargo, Contract, Controllable, Expiration,
-    ItemType, OwnedBy, Patrol, Pirate, Port, Ship, StateQuery,
+use crate::{
+    components::{
+        Action, Affiliation, Ai, AiState, BoundingBox, Cargo, Contract, Controllable, Expiration,
+        ItemType, OwnedBy, Patrol, Pirate, Port, Ship, StateQuery,
+    },
+    graph::Graph,
 };
 use amethyst::{
     assets::{AssetLoaderSystemData, AssetStorage, Handle, Loader},
     core::{
-        math::{distance, normalize, Point2, Point3, Vector2, Vector3},
+        math::{distance, Point2, Point3, Vector2, Vector3},
         transform::Transform,
         WithNamed,
     },
@@ -292,12 +295,6 @@ fn initialise_camera(world: &mut World) {
 fn initialise_map(world: &mut World) {
     let map = Map {
         islands: vec![vec![
-            // Point2::new(150, 200),
-            // Point2::new(150, 150),
-            // Point2::new(180, 150),
-            // Point2::new(180, 150),
-            // Point2::new(150, 150),
-            // Point2::new(175, 100),
             Point2::new(150, 180),
             Point2::new(150, 150),
             Point2::new(180, 150),
@@ -467,6 +464,56 @@ impl Map {
             .collect::<Vec<Edge>>()
     }
 
+    fn corners_and_edges(&self) -> (Vec<Point2<f32>>, Vec<crate::graph::Edge>) {
+        let outer_edges = self.outer_edges();
+
+        let mut corners = HashSet::new();
+
+        for outer_edge in &outer_edges {
+            corners.insert(outer_edge.0);
+            corners.insert(outer_edge.1);
+        }
+
+        let corners = corners.iter().map(|&c| c).collect::<Vec<_>>();
+        let edges = outer_edges
+            .iter()
+            .map(|edge| {
+                crate::graph::Edge(
+                    corners.iter().position(|&c| c == edge.0).unwrap(),
+                    corners.iter().position(|&c| c == edge.1).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let corners = corners.iter().map(|&c| to_f32(c)).collect::<Vec<_>>();
+
+        let adjusted_corners = corners
+            .iter()
+            .enumerate()
+            .map(|(corner_index, &c)| {
+                let corner_edges = edges
+                    .iter()
+                    .filter_map(|e| {
+                        if e.0 == corner_index {
+                            Some(*e)
+                        } else if e.1 == corner_index {
+                            Some(crate::graph::Edge(e.1, e.0))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let mut adjusted_corner = c;
+
+                for edge in corner_edges {
+                    adjusted_corner += (corners[edge.0] - corners[edge.1]).normalize();
+                }
+                adjusted_corner
+            })
+            .collect();
+
+        (adjusted_corners, edges)
+    }
+
     pub fn on_land(&self, point: Point2<f32>) -> bool {
         self.islands.iter().any(|island| {
             island.chunks(3).any(|triangle| {
@@ -509,7 +556,18 @@ impl Map {
             let closest_point_for_edge = edge.0 + clamped_t * (&(edge.1 - edge.0));
             let distance = distance(&closest_point_for_edge, &point);
             if distance < closest_point.1 {
-                closest_point = (closest_point_for_edge, distance);
+                let direction = (edge.1 - edge.0).normalize();
+                let perpendicular_direction = Vector2::new(-direction.y, direction.x);
+                let adjusted_closest_point_for_edge =
+                    closest_point_for_edge + perpendicular_direction;
+                let adjusted_closest_point_for_edge =
+                    if self.on_land(adjusted_closest_point_for_edge) {
+                        closest_point_for_edge - perpendicular_direction
+                    } else {
+                        adjusted_closest_point_for_edge
+                    };
+
+                closest_point = (adjusted_closest_point_for_edge, distance);
             }
         }
 
@@ -587,55 +645,40 @@ impl Map {
         closest_point.0
     }
 
-    pub fn closest_corner_to_line(
-        &self,
-        starting_point: Point2<f32>,
-        line_direction: Vector2<f32>,
-        corners_visited: &HashSet<Point2<i32>>,
-    ) -> Option<(Point2<f32>, Point2<i32>)> {
-        let closest_point_on_edge =
-            self.closest_point_of_line_on_edge(starting_point, line_direction, false);
+    pub fn nodes_and_edges_connected(&self, points: Vec<Point2<f32>>) -> Graph {
+        let (corners, mut edges) = self.corners_and_edges();
+        let nodes = corners
+            .iter()
+            .chain(points.iter())
+            .map(|&p| p)
+            .collect::<Vec<Point2<f32>>>();
 
-        if let Some(closest_point_on_edge) = closest_point_on_edge {
-            let outer_edges = self.outer_edges();
-            outer_edges
-                .iter()
-                .flat_map(|&edge| {
-                    outer_edges
-                        .iter()
-                        .filter(move |&&other_edge| {
-                            edge != other_edge
-                                && (edge.0 == other_edge.1
-                                    || edge.0 == other_edge.0
-                                    || edge.1 == other_edge.0
-                                    || edge.1 == other_edge.1)
-                        })
-                        .map(move |&other_edge| {
-                            if edge.0 == other_edge.0 {
-                                (edge.0, edge, other_edge)
-                            } else if edge.0 == other_edge.1 {
-                                (edge.0, edge, Edge(other_edge.1, other_edge.0))
-                            } else if edge.1 == other_edge.0 {
-                                (edge.1, Edge(edge.1, edge.0), other_edge)
-                            } else {
-                                (
-                                    edge.1,
-                                    Edge(edge.1, edge.0),
-                                    Edge(other_edge.1, other_edge.0),
-                                )
-                            }
-                        })
-                })
-                .filter(|(c, _, _)| !corners_visited.contains(&c))
-                .min_by_key(|(c, _, _)| distance(&to_f32(*c), &closest_point_on_edge) as i32)
-                .map(|(c, edge, other_edge)| {
-                    let edge_direction = (to_f32(edge.0) - to_f32(edge.1)).normalize();
-                    let other_edge_direction =
-                        (to_f32(other_edge.0) - to_f32(other_edge.1)).normalize();
-                    (to_f32(c) + edge_direction + other_edge_direction, c)
-                })
-        } else {
-            None
+        let corners_count = corners.len();
+        let mut new_edges = points
+            .iter()
+            .enumerate()
+            .flat_map(|(point_index, &point)| {
+                let corrected_point_index = point_index + corners_count;
+                nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(node_index, &node)| {
+                        let closest_point =
+                            self.closest_point_of_line_on_edge(point, node - point, true);
+                        let edge = if closest_point.is_none() && corrected_point_index != node_index
+                        {
+                            Some(crate::graph::Edge(corrected_point_index, node_index))
+                        } else {
+                            None
+                        };
+                        edge
+                    })
+            })
+            .collect::<Vec<_>>();
+        edges.append(&mut new_edges);
+        Graph {
+            nodes: nodes,
+            edges: edges,
         }
     }
 }

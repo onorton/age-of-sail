@@ -13,6 +13,7 @@ serde = "1.0.123"
 amethyst_test = "0.15"
 test-case = "1.1.0"
 itertools="0.10.0"
+priority-queue="1.1.1"
 
 [dependencies.amethyst]
 version = "0.15"

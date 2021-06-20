@@ -21,6 +21,7 @@ use systems::{
 mod age_of_sail;
 mod components;
 mod event;
+mod graph;
 mod systems;
 
 use crate::age_of_sail::MainState;
