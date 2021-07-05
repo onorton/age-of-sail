@@ -226,13 +226,20 @@ impl<'s> System<'s> for PlotCourseSystem {
                         } else {
                             *point
                         };
-
+                    
                         let ship_point = Point2::new(local.translation().x, local.translation().y);
-                        // Get corners and add edges between start and end and corners that are
-                        // reachable in a straight line
-                        let graph = map.nodes_and_edges_connected(vec![ship_point, point]); 
+
+                        let start_point = if !input.key_is_down(VirtualKeyCode::LShift) {
+                            ship_point
+                        } else {
+                            match courses.get_mut(e) {
+                                Some(c) => *c.waypoints.iter().last().unwrap(),
+                                None => ship_point
+                            }
+                        };
+
+                        let graph = map.nodes_and_edges_connected(vec![start_point, point]); 
                         
-                        // Solve A* to get points
                         let points = graph.a_star(graph.nodes.len()-2, graph.nodes.len()-1);
                        
                         let mut points = points.iter().map(|p| *p).collect();
