@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     ops::Add,
@@ -293,16 +294,8 @@ fn initialise_camera(world: &mut World) {
 }
 
 fn initialise_map(world: &mut World) {
-    let map = Map {
-        islands: vec![vec![
-            Point2::new(150, 180),
-            Point2::new(150, 150),
-            Point2::new(180, 150),
-            Point2::new(180, 150),
-            Point2::new(150, 150),
-            Point2::new(180, 120),
-        ]],
-    };
+    let map_reader = std::fs::File::open(&"assets/map.ron").expect("Failed opening map file");
+    let map: Map = ron::de::from_reader(map_reader).unwrap();
 
     let map_vertices = map.into_vertices();
     let num_map_vertices = map_vertices.len();
@@ -396,7 +389,7 @@ pub fn point_mouse_to_world(
     )
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Deserialize)]
 pub struct Map {
     pub islands: Vec<Vec<Point2<i32>>>,
 }
