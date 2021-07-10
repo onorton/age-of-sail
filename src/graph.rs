@@ -12,6 +12,10 @@ pub struct Graph {
 
 impl Graph {
     pub fn a_star(&self, start: usize, end: usize) -> Vec<Point2<f32>> {
+        if self.nodes[start] == self.nodes[end] {
+            return vec![self.nodes[start]];
+        }
+
         let mut frontier = PriorityQueue::new();
         frontier.push(start, 0);
         let mut came_from = HashMap::<usize, Option<usize>>::new();
@@ -43,8 +47,6 @@ impl Graph {
             nodes.push_front(previous.unwrap());
             previous = came_from[&previous.unwrap()];
         }
-        nodes.pop_front();
-
         nodes.iter().map(|&n| self.nodes[n]).collect::<Vec<_>>()
     }
 

@@ -31,43 +31,62 @@ impl<'s> System<'s> for MoveShipsSystem {
         ReadStorage<'s, Ship>,
         WriteStorage<'s, Course>,
         WriteStorage<'s, Transform>,
+        Read<'s, Map>,
         Read<'s, Time>,
     );
 
-    fn run(&mut self, (ships, mut courses, mut locals, time): Self::SystemData) {
+    fn run(&mut self, (ships, mut courses, mut locals, map, time): Self::SystemData) {
         for (ship, course, local) in (&ships, &mut courses, &mut locals).join() {
             let ship_x = local.translation().x;
             let ship_y = local.translation().y;
 
             let ship_location = Point2::new(ship_x, ship_y);
 
-            if let Some(next_waypoint) = course.waypoints.front() { 
-                let direction =
-                    Vector2::new(next_waypoint.x - ship_x, next_waypoint.y - ship_y).normalize();
+            if let Some(next_waypoint) = course.waypoints.front() {
+                let graph = map.nodes_and_edges_connected(vec![ship_location, *next_waypoint]); 
+                        
+                let mut points = VecDeque::from(graph.a_star(graph.nodes.len()-2, graph.nodes.len()-1));
+                       
+                if points.len() > 2 {
+                    // Remove first and last point
+                    points.pop_front();
+                    points.pop_back();
+                    while let Some(point) = points.pop_back() {
+                       course.waypoints.push_front(point); 
+                    }
+                }
+            }
 
-                let distance = ship_location.distance(&next_waypoint);
-                let closeness_modifier = if distance < DISTANCE_THRESHOLD * time.time_scale() {
-                    distance / (time.time_scale() + f32::EPSILON)
-                } else {
-                    1.0
-                };
 
-                local.prepend_translation_x(
-                    closeness_modifier * ship.base_speed * direction.x * time.delta_seconds(),
-                );
-                local.prepend_translation_y(
-                    closeness_modifier * ship.base_speed * direction.y * time.delta_seconds(),
-                );
-
+            if let Some(next_waypoint) = course.waypoints.front() {
                 if ship_location.distance(next_waypoint)
                     < DISTANCE_THRESHOLD
                 {
                     course.waypoints.pop_front();
-                }
+                } else {
+                    let direction =
+                        Vector2::new(next_waypoint.x - ship_x, next_waypoint.y - ship_y).normalize();
+
+                    let distance = ship_location.distance(&next_waypoint);
+                    
+                    let closeness_modifier = if distance < DISTANCE_THRESHOLD * time.time_scale() {
+                        distance / (time.time_scale() + f32::EPSILON)
+                    } else {
+                        1.0
+                    };
+
+                    local.prepend_translation_x(
+                        closeness_modifier * ship.base_speed * direction.x * time.delta_seconds(),
+                    );
+                    local.prepend_translation_y(
+                        closeness_modifier * ship.base_speed * direction.y * time.delta_seconds(),
+                    ); 
+             
                 }
             }
         }
     }
+}
 
 #[derive(SystemDesc)]
 pub struct PatrolSystem;
@@ -195,7 +214,7 @@ impl<'s> System<'s> for PlotCourseSystem {
         (entities, cameras, ships, locals, selecteds, controllables, mut courses, input, map, screen_dimensions): Self::SystemData,
     ) {
         for (_, camera_local) in (&cameras, &locals).join() {
-            for (e, local, _, _, _) in (&entities, &locals, &ships, &selecteds, &controllables).join() {
+            for (e, _, _, _, _) in (&entities, &locals, &ships, &selecteds, &controllables).join() {
                 if let Some((mouse_x, mouse_y)) = input.mouse_position() {
                     if input.mouse_button_is_down(MouseButton::Right) {
                         let point_in_world =
@@ -215,42 +234,25 @@ impl<'s> System<'s> for PlotCourseSystem {
                         } else {
                             *point
                         };
-                    
-                        let ship_point = Point2::new(local.translation().x, local.translation().y);
 
-                        let start_point = if !input.key_is_down(VirtualKeyCode::LShift) {
-                            ship_point
-                        } else {
-                            match courses.get_mut(e) {
-                                Some(c) => *c.waypoints.iter().last().unwrap(),
-                                None => ship_point
-                            }
-                        };
-
-                        let graph = map.nodes_and_edges_connected(vec![start_point, point]); 
-                        
-                        let points = graph.a_star(graph.nodes.len()-2, graph.nodes.len()-1);
-                       
-                        let mut points = points.iter().map(|p| *p).collect();
-                        
                         if !input.key_is_down(VirtualKeyCode::LShift) {
                             courses
                                 .insert(
                                     e,
                                     Course {
-                                        waypoints: points,
+                                        waypoints: VecDeque::from(vec![point]),
                                     },
                                 )
                                 .unwrap();
                         } else {
                             match courses.get_mut(e) {
-                                Some(c) => c.waypoints.append(&mut points),
+                                Some(c) => c.waypoints.push_back(point),
                                 None => {
                                     courses
                                         .insert(
                                             e,
                                             Course {
-                                                waypoints: points,
+                                                waypoints: VecDeque::from(vec![point]),
                                             },
                                         )
                                         .unwrap();
