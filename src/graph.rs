@@ -12,10 +12,6 @@ pub struct Graph {
 
 impl Graph {
     pub fn a_star(&self, start: usize, end: usize) -> Vec<Point2<f32>> {
-        if self.nodes[start] == self.nodes[end] {
-            return vec![self.nodes[start]];
-        }
-
         let mut frontier = PriorityQueue::new();
         frontier.push(start, 0);
         let mut came_from = HashMap::<usize, Option<usize>>::new();
@@ -68,5 +64,38 @@ impl Graph {
 
     fn cost(&self, current: usize, next: usize) -> f32 {
         self.nodes[current].distance(&self.nodes[next])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_star_will_select_direct_route_if_it_can() {
+        let start = Point2::new(0.0, 0.0);
+        let end = Point2::new(5.0, 5.0);
+
+        let graph = Graph {
+            nodes: vec![start, end, Point2::new(2.5, 2.5), Point2::new(3.0, 2.0)],
+            edges: vec![Edge(0, 1), Edge(0, 2), Edge(0, 3), Edge(1, 2), Edge(1, 3)],
+        };
+
+        let route = graph.a_star(0, 1);
+        assert_eq!(route, vec![start, end], "Route");
+    }
+
+    #[test]
+    fn a_star_will_use_shortest_of_possible_routes_in_terms_of_distance() {
+        let start = Point2::new(0.0, 0.0);
+        let end = Point2::new(5.0, 5.0);
+
+        let graph = Graph {
+            nodes: vec![start, end, Point2::new(2.5, 2.5), Point2::new(3.0, 2.0)],
+            edges: vec![Edge(0, 2), Edge(0, 3), Edge(1, 2), Edge(1, 3)],
+        };
+
+        let route = graph.a_star(0, 1);
+        assert_eq!(route, vec![start, Point2::new(2.5, 2.5), end], "Route");
     }
 }
