@@ -2,7 +2,7 @@ use amethyst::core::{alga::linear::EuclideanSpace, math::Point2};
 use priority_queue::PriorityQueue;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Edge(pub usize, pub usize);
 
 pub struct Graph {

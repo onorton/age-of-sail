@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 
-use crate::graph::Graph;
+use crate::graph::{Edge as GraphEdge, Graph};
 use amethyst::{
     core::math::{distance, Point2, Vector2},
     renderer::rendy::mesh::Position,
@@ -19,8 +20,16 @@ fn to_f32(point: Point2<i32>) -> Point2<f32> {
     Point2::new(point.x as f32, point.y as f32)
 }
 
-fn cross_2d(point_1: Vector2<f32>, point_2: Vector2<f32>) -> f32 {
-    point_1.x * point_2.y - point_1.y * point_2.x
+fn cross_2d(vector_1: Vector2<f32>, vector_2: Vector2<f32>) -> f32 {
+    vector_1.x * vector_2.y - vector_1.y * vector_2.x
+}
+
+fn on_line(point: Point2<f32>, line_start: Point2<f32>, line_direction: Vector2<f32>) -> bool {
+    let start_point_line = point - line_start;
+    let cross = cross_2d(start_point_line, line_direction);
+    let dot_product = start_point_line.dot(&line_direction);
+    let line_distance_squared = line_direction.magnitude_squared();
+    cross == 0.0 && dot_product >= 0.0 && dot_product <= line_distance_squared
 }
 
 impl Map {
@@ -75,7 +84,7 @@ impl Map {
             .collect::<Vec<Edge>>()
     }
 
-    fn corners_and_edges(&self) -> (Vec<Point2<f32>>, Vec<crate::graph::Edge>) {
+    fn corners_and_edges(&self) -> (Vec<Point2<f32>>, Vec<GraphEdge>) {
         let outer_edges = self.outer_edges();
 
         let mut corners = HashSet::new();
@@ -89,7 +98,7 @@ impl Map {
         let edges = outer_edges
             .iter()
             .map(|edge| {
-                crate::graph::Edge(
+                GraphEdge(
                     corners.iter().position(|&c| c == edge.0).unwrap(),
                     corners.iter().position(|&c| c == edge.1).unwrap(),
                 )
@@ -107,7 +116,7 @@ impl Map {
                         if e.0 == corner_index {
                             Some(*e)
                         } else if e.1 == corner_index {
-                            Some(crate::graph::Edge(e.1, e.0))
+                            Some(GraphEdge(e.1, e.0))
                         } else {
                             None
                         }
@@ -142,7 +151,12 @@ impl Map {
                 let b_cross = cross_2d(b_c, b_p);
                 let c_cross = cross_2d(c_a, c_p);
 
-                a_cross.signum() == b_cross.signum() && a_cross.signum() == c_cross.signum()
+                let within_triangle =
+                    a_cross.signum() == b_cross.signum() && a_cross.signum() == c_cross.signum();
+                let on_line =
+                    on_line(point, a, a_b) || on_line(point, b, b_c) || on_line(point, c, c_a);
+
+                within_triangle || on_line
             })
         })
     }
@@ -278,7 +292,7 @@ impl Map {
                             self.closest_point_of_line_on_edge(point, node - point, true);
                         let edge = if closest_point.is_none() && corrected_point_index != node_index
                         {
-                            Some(crate::graph::Edge(corrected_point_index, node_index))
+                            Some(GraphEdge(corrected_point_index, node_index))
                         } else {
                             None
                         };
@@ -291,5 +305,183 @@ impl Map {
             nodes: nodes,
             edges: edges,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amethyst::core::alga::linear::EuclideanSpace;
+    use test_case::test_case;
+
+    #[test]
+    fn into_vertices_produces_conserves_number_of_triangles_specified() {
+        let map = Map {
+            islands: vec![
+                vec![
+                    Point2::new(50, 100),
+                    Point2::new(100, 125),
+                    Point2::new(100, 75),
+                ],
+                vec![
+                    Point2::new(50, 0),
+                    Point2::new(100, 25),
+                    Point2::new(100, -25),
+                    Point2::new(100, -25),
+                    Point2::new(100, 25),
+                    Point2::new(150, 0),
+                ],
+            ],
+        };
+        let vertices = map.into_vertices();
+        assert_eq!(9, vertices.len(), "number of vertices");
+    }
+
+    #[test_case(Point2::new(0.0, 0.0) => false ; "outside of land")]
+    #[test_case(Point2::new(75.0, 110.0) => true ; "on smaller island")]
+    #[test_case(Point2::new(110.0, 0.0) => true ; "on bigger island")]
+    #[test_case(Point2::new(50.0, 0.0) => true ; "on corner")]
+    #[test_case(Point2::new(52.0, 101.0) => true ; "on edge")]
+    fn on_land_returns_true_if_point_on_any_triangle(point: Point2<f32>) -> bool {
+        let map = Map {
+            islands: vec![
+                vec![
+                    Point2::new(50, 100),
+                    Point2::new(100, 125),
+                    Point2::new(100, 75),
+                ],
+                vec![
+                    Point2::new(50, 0),
+                    Point2::new(100, 25),
+                    Point2::new(100, -25),
+                    Point2::new(100, -25),
+                    Point2::new(100, 25),
+                    Point2::new(150, 0),
+                ],
+            ],
+        };
+        map.on_land(point)
+    }
+
+    #[test_case(Point2::new(0.0, 0.0), Point2::new(50.0, 0.0) ; "point not on land")]
+    #[test_case(Point2::new(65.0, 5.0), Point2::new(63.5, 7.89) ; "point on land")]
+    #[test_case(Point2::new(98.0, 1.0), Point2::new(88.0, 20.0) ; "point near a middle edge")]
+    fn closest_point_on_edge_selects_point_on_an_outer_edge_which_is_closest(
+        point: Point2<f32>,
+        unadjusted_point_on_edge: Point2<f32>,
+    ) {
+        let map = Map {
+            islands: vec![vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(100, -25),
+                Point2::new(100, -25),
+                Point2::new(100, 25),
+                Point2::new(150, 0),
+            ]],
+        };
+        let closest_point = map.closest_point_on_edge(point);
+        assert!(
+            closest_point.distance(&unadjusted_point_on_edge) < 1.0,
+            format!("Adjusted cmrner is close enough {:?}", closest_point)
+        );
+    }
+
+    #[test]
+    fn nodes_and_edges_connected_does_not_returns_edges_for_points_that_cannot_directly_connect() {
+        let map = Map {
+            islands: vec![vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(100, -25),
+            ]],
+        };
+
+        let graph =
+            map.nodes_and_edges_connected(vec![Point2::new(0.0, 0.0), Point2::new(120.0, 0.0)]);
+        let edges = HashSet::<GraphEdge>::from_iter(graph.edges.into_iter());
+
+        assert!(
+            !edges.contains(&GraphEdge(3, 4)) && !edges.contains(&GraphEdge(4, 3)),
+            "Edges does not contain edge from start point to end point"
+        );
+
+        let number_connected_to_end_point = edges
+            .iter()
+            .filter(|edge| edge.0 == 4 || edge.1 == 4)
+            .count();
+        assert_eq!(
+            2, number_connected_to_end_point,
+            "Number of nodes end point is connected to"
+        );
+    }
+
+    #[test]
+    fn nodes_and_edges_connected_returns_edges_for_every_point_that_connects_to_a_corner() {
+        let map = Map {
+            islands: vec![vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(100, -25),
+            ]],
+        };
+
+        let graph =
+            map.nodes_and_edges_connected(vec![Point2::new(0.0, 0.0), Point2::new(120.0, 0.0)]);
+        let edges = HashSet::<GraphEdge>::from_iter(graph.edges.into_iter());
+
+        let number_connected_to_end_point = edges
+            .iter()
+            .filter(|edge| edge.0 == 3 || edge.1 == 3)
+            .count();
+        assert_eq!(
+            3, number_connected_to_end_point,
+            "Number of nodes start point is connected to"
+        );
+
+        let number_connected_to_end_point = edges
+            .iter()
+            .filter(|edge| edge.0 == 4 || edge.1 == 4)
+            .count();
+        assert_eq!(
+            2, number_connected_to_end_point,
+            "Number of nodes end point is connected to"
+        );
+    }
+
+    #[test]
+    fn nodes_and_edges_connected_adds_all_new_points_to_graph() {
+        let map = Map {
+            islands: vec![vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(100, -25),
+            ]],
+        };
+
+        let graph = map.nodes_and_edges_connected(vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(120.0, 0.0),
+            Point2::new(150.0, 0.0),
+        ]);
+        assert_eq!(6, graph.nodes.len(), "Graph nodes");
+    }
+
+    #[test]
+    fn nodes_and_edges_connected_only_includes_corners_and_outer_edges_of_land() {
+        let map = Map {
+            islands: vec![vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(100, -25),
+                Point2::new(100, -25),
+                Point2::new(100, 25),
+                Point2::new(150, 0),
+            ]],
+        };
+
+        let graph = map.nodes_and_edges_connected(vec![]);
+        assert_eq!(4, graph.nodes.len(), "Graph nodes");
+        assert_eq!(4, graph.edges.len(), "Graph edges");
     }
 }
