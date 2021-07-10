@@ -332,6 +332,74 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn moves_ships_adds_new_waypoints_if_choosing_the_current_one_passes_through_land() -> Result<()> {
+        let waypoints = VecDeque::from(vec![Point2::new(120.0, 0.0)]);
+        let num_waypoints = waypoints.len();
+
+        AmethystApplication::blank()
+            .with_setup(|world| {
+                world.insert(Map{
+                    islands: vec![vec![Point2::new(50, 0), Point2::new(100, 75), Point2::new(100, -25)]]
+                })
+            })
+            .with_system(MoveShipsSystem, "move_ships", &[])
+            .with_effect(move |world| {
+                let ship = world
+                    .create_entity()
+                    .with(Ship {base_speed: 1.0
+                    })
+                    .with(Course {waypoints: waypoints})
+                    .with(Transform::default())
+                    .build();
+
+                world.insert(EffectReturn(ship));
+            })
+            .with_assertion(move |world| {
+                let ship_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
+
+                let courses = world.read_storage::<Course>();
+
+                let course = courses.get(ship_entity).unwrap();
+                assert!(course.waypoints.len() > num_waypoints, "Number of waypoints more than originally");
+            })
+            .run()
+    }
+
+    #[test]
+    fn moves_ships_does_not_adds_new_waypoints_if_choosing_the_current_does_not_pass_through_land() -> Result<()> {
+        let waypoints = VecDeque::from(vec![Point2::new(120.0, -50.0)]);
+        let num_waypoints = waypoints.len();
+
+        AmethystApplication::blank()
+            .with_setup(|world| {
+                world.insert(Map{
+                    islands: vec![vec![Point2::new(50, 0), Point2::new(100, 75), Point2::new(100, -25)]]
+                })
+            })
+            .with_system(MoveShipsSystem, "move_ships", &[])
+            .with_effect(move |world| {
+                let ship = world
+                    .create_entity()
+                    .with(Ship {base_speed: 1.0
+                    })
+                    .with(Course {waypoints: waypoints})
+                    .with(Transform::default())
+                    .build();
+
+                world.insert(EffectReturn(ship));
+            })
+            .with_assertion(move |world| {
+                let ship_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
+
+                let courses = world.read_storage::<Course>();
+
+                let course = courses.get(ship_entity).unwrap();
+                assert_eq!(num_waypoints, course.waypoints.len(), "Number of waypoints");
+            })
+            .run()
+    }
+
+    #[test]
     fn moves_ships_chooses_next_waypoint_if_close_enough_to_current_one() -> Result<()> {
         let waypoints = VecDeque::from(vec![Point2::new(0.00001, 0.0002), Point2::new(2.0, 3.0), Point2::new(20.0, -5.0)]);
 
