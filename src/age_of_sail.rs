@@ -93,7 +93,7 @@ fn initialise_player(world: &mut World) -> () {
     let sprite_render = SpriteRender::new(load_sprite_sheet(world), 1);
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(200.0, 150.0, 0.0);
+    transform.set_translation_xyz(120.0, 50.0, 0.0);
 
     world
         .create_entity()
