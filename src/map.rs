@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 
 use crate::graph::{Edge as GraphEdge, Graph};
 use amethyst::{
@@ -312,6 +311,7 @@ impl Map {
 mod tests {
     use super::*;
     use amethyst::core::alga::linear::EuclideanSpace;
+    use std::iter::FromIterator;
     use test_case::test_case;
 
     #[test]
@@ -383,8 +383,32 @@ mod tests {
         let closest_point = map.closest_point_on_edge(point);
         assert!(
             closest_point.distance(&unadjusted_point_on_edge) < 1.0,
-            format!("Adjusted cmrner is close enough {:?}", closest_point)
+            format!("Adjusted corner is close enough {:?}", closest_point)
         );
+    }
+
+    #[test_case(Point2::new(0.0, 0.0), Vector2::new(40.0, 1.0), true =>  None; "line outside of land and strict")]
+    #[test_case(Point2::new(0.0, 0.0), Vector2::new(40.0, 1.0), false => Some(Point2::new(52.63158, 1.3157893)) ; "line outside of land but passing through and not strict")]
+    #[test_case(Point2::new(0.0, 0.0), Vector2::new(0.0, 10.0), false => None ; "line outside of land not passing through and not strict")]
+    #[test_case(Point2::new(0.0, 0.0), Vector2::new(40.0, 1.0), false => Some(Point2::new(52.63158, 1.3157893)) ; "line outside of land and not strict")]
+    #[test_case(Point2::new(60.0, 2.5), Vector2::new(100.0, 0.0), true => Some(Point2::new(145.0, 2.5)) ; "starting point inside land, closest point behind and strict")]
+    #[test_case(Point2::new(60.0, 3.0), Vector2::new(100.0, 0.0), false => Some(Point2::new(56.0, 3.0)) ; "starting point inside land, closest point behind and not strict")]
+    fn closest_point_of_line_on_edge_finds_point_on_outer_edge_if_it_exists(
+        starting_point: Point2<f32>,
+        line_direction: Vector2<f32>,
+        strict: bool,
+    ) -> Option<Point2<f32>> {
+        let map = Map {
+            islands: vec![vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(100, -25),
+                Point2::new(100, -25),
+                Point2::new(100, 25),
+                Point2::new(150, 0),
+            ]],
+        };
+        map.closest_point_of_line_on_edge(starting_point, line_direction, strict)
     }
 
     #[test]
