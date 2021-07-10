@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use itertools::Itertools;
+use std::collections::VecDeque;
 
 use amethyst::{
     core::{
@@ -40,23 +41,7 @@ impl<'s> System<'s> for MoveShipsSystem {
 
             let ship_location = Point2::new(ship_x, ship_y);
 
-            if let Some(next_waypoint_index) = course.next_waypoint_index {
-                if ship_location.distance(&course.waypoints[next_waypoint_index])
-                    < DISTANCE_THRESHOLD
-                {
-                    let new_next_waypoint_index = next_waypoint_index + 1;
-
-                    if new_next_waypoint_index == course.waypoints.len() {
-                        course.next_waypoint_index.take();
-                        continue;
-                    } else {
-                        course.next_waypoint_index.replace(new_next_waypoint_index);
-                    }
-                }
-
-                let next_waypoint_index = course.next_waypoint_index.unwrap();
-                let next_waypoint = course.waypoints[next_waypoint_index];
-
+            if let Some(next_waypoint) = course.waypoints.front() { 
                 let direction =
                     Vector2::new(next_waypoint.x - ship_x, next_waypoint.y - ship_y).normalize();
 
@@ -73,10 +58,16 @@ impl<'s> System<'s> for MoveShipsSystem {
                 local.prepend_translation_y(
                     closeness_modifier * ship.base_speed * direction.y * time.delta_seconds(),
                 );
+
+                if ship_location.distance(next_waypoint)
+                    < DISTANCE_THRESHOLD
+                {
+                    course.waypoints.pop_front();
+                }
+                }
             }
         }
     }
-}
 
 #[derive(SystemDesc)]
 pub struct PatrolSystem;
@@ -123,8 +114,7 @@ impl<'s> System<'s> for PatrolSystem {
                         .insert(
                             e,
                             Course {
-                                waypoints: vec![patrol.waypoints[new_next_waypoint_index]],
-                                next_waypoint_index: Some(0),
+                                waypoints: VecDeque::from(vec![patrol.waypoints[new_next_waypoint_index]]),
                             },
                         )
                         .unwrap();
@@ -174,8 +164,7 @@ impl<'s> System<'s> for ChaseSystem {
                         .insert(
                             e,
                             Course {
-                                waypoints: vec![other_location],
-                                next_waypoint_index: Some(0),
+                                waypoints: VecDeque::from(vec![other_location]),
                             },
                         )
                         .unwrap();
@@ -243,14 +232,13 @@ impl<'s> System<'s> for PlotCourseSystem {
                         let points = graph.a_star(graph.nodes.len()-2, graph.nodes.len()-1);
                        
                         let mut points = points.iter().map(|p| *p).collect();
-                         
+                        
                         if !input.key_is_down(VirtualKeyCode::LShift) {
                             courses
                                 .insert(
                                     e,
                                     Course {
                                         waypoints: points,
-                                        next_waypoint_index: Some(0),
                                     },
                                 )
                                 .unwrap();
@@ -263,7 +251,6 @@ impl<'s> System<'s> for PlotCourseSystem {
                                             e,
                                             Course {
                                                 waypoints: points,
-                                                next_waypoint_index: Some(0),
                                             },
                                         )
                                         .unwrap();
@@ -343,8 +330,7 @@ mod tests {
 
     #[test]
     fn moves_ships_chooses_next_waypoint_if_close_enough_to_current_one() -> Result<()> {
-        const CURRENT_WAYPOINT_INDEX: usize = 1;
-        let waypoints = vec![Point2::new(2.0, 3.0), Point2::new(0.00001, 0.0002), Point2::new(20.0, -5.0)];
+        let waypoints = VecDeque::from(vec![Point2::new(0.00001, 0.0002), Point2::new(2.0, 3.0), Point2::new(20.0, -5.0)]);
 
          AmethystApplication::blank()
             .with_system(MoveShipsSystem, "move_ships", &[])
@@ -353,7 +339,7 @@ mod tests {
                     .create_entity()
                     .with(Ship {base_speed: 1.0
                     })
-                    .with(Course {waypoints: waypoints, next_waypoint_index: Some(CURRENT_WAYPOINT_INDEX)})
+                    .with(Course {waypoints: waypoints})
                     .with(Transform::default())
                     .build();
 
@@ -365,15 +351,14 @@ mod tests {
                 let courses = world.read_storage::<Course>();
 
                 let course = courses.get(ship_entity).unwrap();
-                assert_eq!(Some(CURRENT_WAYPOINT_INDEX + 1), course.next_waypoint_index, "Next waypoint index");
+                assert_eq!(Point2::new(2.0, 3.0), *course.waypoints.front().unwrap(), "Next waypoint");
             })
             .run()
     }
 
     #[test]
     fn moves_ships_keeps_current_waypoint_if_not_close_enough_to_current_one() -> Result<()> {
-        const CURRENT_WAYPOINT_INDEX: usize = 1;
-        let waypoints = vec![Point2::new(2.0, 3.0), Point2::new(10.0, 20.0), Point2::new(20.0, -5.0)];
+        let waypoints = VecDeque::from(vec![Point2::new(2.0, 3.0), Point2::new(10.0, 20.0), Point2::new(20.0, -5.0)]);
 
          AmethystApplication::blank()
             .with_system(MoveShipsSystem, "move_ships", &[])
@@ -382,7 +367,7 @@ mod tests {
                     .create_entity()
                     .with(Ship {base_speed: 1.0
                     })
-                    .with(Course {waypoints: waypoints, next_waypoint_index: Some(CURRENT_WAYPOINT_INDEX)})
+                    .with(Course {waypoints: waypoints})
                     .with(Transform::default())
                     .build();
 
@@ -394,16 +379,15 @@ mod tests {
                 let courses = world.read_storage::<Course>();
 
                 let course = courses.get(ship_entity).unwrap();
-                assert_eq!(Some(CURRENT_WAYPOINT_INDEX), course.next_waypoint_index, "Next waypoint index");
+                assert_eq!(Point2::new(2.0, 3.0), *course.waypoints.front().unwrap(), "Next waypoint");
             })
             .run()
     }
     
     #[test]
     fn moves_ships_moves_closer_to_current_waypoint() -> Result<()> {
-        const CURRENT_WAYPOINT_INDEX: usize = 1;
         let current_waypoint = Point2::new(10.0, 20.0);
-        let waypoints = vec![Point2::new(2.0, 3.0), current_waypoint, Point2::new(20.0, -5.0)];
+        let waypoints = VecDeque::from(vec![current_waypoint, Point2::new(2.0, 3.0), Point2::new(20.0, -5.0)]);
 
         let original_local = Transform::default();
         let original_ship_location = Point2::new(original_local.translation().x, original_local.translation().y); 
@@ -415,7 +399,7 @@ mod tests {
                     .create_entity()
                     .with(Ship {base_speed: 1.0
                     })
-                    .with(Course {waypoints: waypoints, next_waypoint_index: Some(CURRENT_WAYPOINT_INDEX)})
+                    .with(Course {waypoints: waypoints})
                     .with(original_local)
                     .build();
 
@@ -436,9 +420,8 @@ mod tests {
 
     #[test]
     fn moves_ships_higher_base_speed_more() -> Result<()> {
-        const CURRENT_WAYPOINT_INDEX: usize = 1;
         let current_waypoint = Point2::new(10.0, 20.0);
-        let waypoints = vec![Point2::new(2.0, 3.0), current_waypoint, Point2::new(20.0, -5.0)];
+        let waypoints = VecDeque::from(vec![current_waypoint, Point2::new(2.0, 3.0), Point2::new(20.0, -5.0)]);
 
         let original_local = Transform::default();
 
@@ -449,7 +432,7 @@ mod tests {
                     .create_entity()
                     .with(Ship {base_speed: 1.0
                     })
-                    .with(Course {waypoints: waypoints.clone(), next_waypoint_index: Some(CURRENT_WAYPOINT_INDEX)})
+                    .with(Course {waypoints: waypoints.clone()})
                     .with(original_local.clone())
                     .build();
 
@@ -457,7 +440,7 @@ mod tests {
                     .create_entity()
                     .with(Ship {base_speed: 2.0
                     })
-                    .with(Course {waypoints: waypoints.clone(), next_waypoint_index: Some(CURRENT_WAYPOINT_INDEX)})
+                    .with(Course {waypoints: waypoints.clone()})
                     .with(original_local.clone())
                     .build();
 
@@ -465,7 +448,7 @@ mod tests {
                 world.insert(EffectReturn((ship, faster_ship)));
             })
             .with_assertion(move |world| {
- let locals = world.read_storage::<Transform>();
+                let locals = world.read_storage::<Transform>();
  
                 let ship_entity = world.read_resource::<EffectReturn<(Entity, Entity)>>().0.0.clone();
                 let ship_local = locals.get(ship_entity).unwrap();
@@ -480,38 +463,9 @@ mod tests {
             .run()
     }
 
-    #[test]
-    fn moves_ships_next_waypoint_none_if_reached_final_waypoint() -> Result<()> {
-        const CURRENT_WAYPOINT_INDEX: usize = 2;
-        let waypoints = vec![Point2::new(2.0, 3.0), Point2::new(20.0, -5.0), Point2::new(0.00001, 0.0002)];
-
-         AmethystApplication::blank()
-            .with_system(MoveShipsSystem, "move_ships", &[])
-            .with_effect(move |world| {
-                let ship = world
-                    .create_entity()
-                    .with(Ship {base_speed: 1.0
-                    })
-                    .with(Course {waypoints: waypoints, next_waypoint_index: Some(CURRENT_WAYPOINT_INDEX)})
-                    .with(Transform::default())
-                    .build();
-
-                world.insert(EffectReturn(ship));
-            })
-            .with_assertion(|world| {
-                let ship_entity = world.read_resource::<EffectReturn<Entity>>().0.clone();
-
-                let courses = world.read_storage::<Course>();
-
-                let course = courses.get(ship_entity).unwrap();
-                assert_eq!(None, course.next_waypoint_index, "Next waypoint index");
-            })
-            .run()
-    }
-
     #[test] 
     fn moves_ships_does_not_move_if_no_next_waypoint() -> Result<()> {
-        let waypoints = vec![Point2::new(2.0, 3.0), Point2::new(20.0, -5.0), Point2::new(0.00001, 0.0002)];
+        let waypoints = VecDeque::from(vec![]);
         let original_local = Transform::default();
         let original_local_cloned = original_local.clone();
 
@@ -522,7 +476,7 @@ mod tests {
                     .create_entity()
                     .with(Ship {base_speed: 1.0
                     })
-                    .with(Course {waypoints: waypoints, next_waypoint_index: None})
+                    .with(Course {waypoints: waypoints})
                     .with(original_local)
                     .build();
 
@@ -541,7 +495,7 @@ mod tests {
     
     #[test] 
     fn moves_ships_does_not_move_non_ship_with_course() -> Result<()> {
-        let waypoints = vec![Point2::new(2.0, 3.0), Point2::new(20.0, -5.0), Point2::new(25.0, 30.0)];
+        let waypoints = VecDeque::from(vec![Point2::new(2.0, 3.0), Point2::new(20.0, -5.0), Point2::new(25.0, 30.0)]);
         let original_local = Transform::default();
         let original_local_cloned = original_local.clone();
 
@@ -550,7 +504,7 @@ mod tests {
             .with_effect(move |world| {
                 let entity = world
                     .create_entity()
-                    .with(Course {waypoints: waypoints, next_waypoint_index: Some(0)})
+                    .with(Course {waypoints: waypoints})
                     .with(original_local)
                     .build();
 
@@ -680,7 +634,7 @@ mod tests {
                         current_state_index: 0,
                         previous_state_index: 0,
                     })
-                    .with(Course {waypoints: vec![current_waypoint], next_waypoint_index: Some(0)}) 
+                    .with(Course {waypoints: VecDeque::from(vec![current_waypoint])}) 
                     .with(Patrol {waypoints: waypoints, next_waypoint_index: 1})
                     .with(Transform::default())
                     .build();
