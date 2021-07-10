@@ -17,8 +17,9 @@ use amethyst::{
 };
 
 use crate::{
-    age_of_sail::{Map, Notifications, point_mouse_to_world, DISTANCE_THRESHOLD},
+    age_of_sail::{Notifications, point_mouse_to_world, DISTANCE_THRESHOLD},
     components::{Action, Ai, Cargo, Controllable, Course, Patrol, Port, Selected, Ship},
+    map::Map,
 };
 
 pub const SNAP_THRESHOLD: f32 = 5.0;

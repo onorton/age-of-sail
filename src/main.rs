@@ -22,6 +22,7 @@ mod age_of_sail;
 mod components;
 mod event;
 mod graph;
+mod map;
 mod systems;
 
 use crate::age_of_sail::MainState;
