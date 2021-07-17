@@ -290,8 +290,9 @@ fn initialise_camera(world: &mut World) {
 }
 
 fn initialise_map(world: &mut World) {
-    let map_reader = std::fs::File::open(&"assets/map.ron").expect("Failed opening map file");
-    let map: Map = ron::de::from_reader(map_reader).unwrap();
+    let map_data_reader = std::fs::File::open(&"assets/map.ron").expect("Failed opening map file");
+    let map_data: Vec<Vec<Point2<i32>>> = ron::de::from_reader(map_data_reader).unwrap();
+    let map = Map::new(map_data);
 
     let map_vertices = map.into_vertices();
     let num_map_vertices = map_vertices.len();

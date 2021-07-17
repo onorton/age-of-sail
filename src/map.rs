@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 
 use crate::graph::{Edge as GraphEdge, Graph};
 use amethyst::{
@@ -15,8 +16,55 @@ pub struct Map {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Edge(Point2<i32>, Point2<i32>);
 
+impl Edge {
+    fn intersects(&self, other: &Edge) -> bool {
+        let self_direction = to_f32(self.1) - to_f32(self.0);
+        let self_start = to_f32(self.0);
+
+        let other_direction = to_f32(other.1) - to_f32(other.0);
+        let other_start = to_f32(other.0);
+
+        intersect(self_start, self_direction, other_start, other_direction)
+    }
+}
+
 fn to_f32(point: Point2<i32>) -> Point2<f32> {
     Point2::new(point.x as f32, point.y as f32)
+}
+
+fn intersect(
+    a_start: Point2<f32>,
+    a_direction: Vector2<f32>,
+    b_start: Point2<f32>,
+    b_direction: Vector2<f32>,
+) -> bool {
+    let cross_of_directions = cross_2d(a_direction, b_direction);
+
+    if cross_of_directions == 0.0 {
+        // parallel
+        if cross_2d(b_start - a_start, a_direction) == 0.0 {
+            // colinear
+            let t_0 = (b_start - a_start).dot(&a_direction) / (a_direction.dot(&a_direction));
+            let t_1 = t_0 + b_direction.dot(&a_direction) / (a_direction.dot(&a_direction));
+
+            t_1 <= 1.0 && t_1 >= 0.0 && t_0 >= 0.0 && t_0 <= 1.0
+        } else {
+            false
+        }
+    } else {
+        // not parallel
+        if a_start == b_start
+            || a_start == (b_start + b_direction)
+            || (a_start + a_direction) == b_start
+            || (a_start + a_direction) == (b_start + b_direction)
+        {
+            return false;
+        }
+
+        let t = cross_2d(b_start - a_start, b_direction / cross_of_directions);
+        let u = cross_2d(b_start - a_start, a_direction / cross_of_directions);
+        t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0
+    }
 }
 
 fn cross_2d(vector_1: Vector2<f32>, vector_2: Vector2<f32>) -> f32 {
@@ -32,6 +80,197 @@ fn on_line(point: Point2<f32>, line_start: Point2<f32>, line_direction: Vector2<
 }
 
 impl Map {
+    pub fn new(islands: Vec<Vec<Point2<i32>>>) -> Self {
+        let islands_triangulated = islands
+            .iter()
+            .map(|island| {
+                let segments = island
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &vertex)| Edge(vertex, island[(index + 1) % island.len()]))
+                    .collect::<Vec<_>>();
+
+                // Trapezoidation and Convert into query structure
+
+                // Decompose into monotone polygons
+
+                // Decompose into triangles (chain)
+                let monotone_polygons: Vec<Vec<Point2<i32>>> = vec![island.to_vec()];
+
+                monotone_polygons
+                    .into_iter()
+                    .flat_map(|polygon| {
+                        let (triangles, _) = polygon.iter().enumerate().fold(
+                            (vec![], vec![]),
+                            |(triangles, new_edges), (i, &point)| {
+                                let prev_neighbour =
+                                    polygon[(i + polygon.len() - 1) % polygon.len()];
+                                let next_neighbour = polygon[(i + 1) % polygon.len()];
+                                let adjacent_neighbours = vec![prev_neighbour, next_neighbour];
+
+                                let neighbours = adjacent_neighbours
+                                    .into_iter()
+                                    .chain(
+                                        new_edges
+                                            .iter()
+                                            .filter_map(|edge: &Edge| {
+                                                if edge.0 == point {
+                                                    Some(edge.1)
+                                                } else if edge.1 == point {
+                                                    Some(edge.0)
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                            .collect::<Vec<Point2<i32>>>(),
+                                    )
+                                    .collect::<Vec<_>>();
+
+                                let triangle_and_edge = neighbours
+                                    .iter()
+                                    .map(|&u| {
+                                        neighbours
+                                            .iter()
+                                            .filter_map(|&w| {
+                                                if w == u {
+                                                    return None;
+                                                };
+
+                                                let new_edge = Edge(u, w);
+
+                                                // Don't include itself
+                                                let intersects_inner = new_edges
+                                                    .iter()
+                                                    .filter(|&other_edge| {
+                                                        (new_edge.0 != other_edge.0
+                                                            && new_edge.1 != other_edge.1)
+                                                            && (new_edge.0 != other_edge.1
+                                                                && new_edge.1 != other_edge.0)
+                                                    })
+                                                    .any(|&other_edge| {
+                                                        new_edge.intersects(&other_edge)
+                                                    });
+
+                                                let intersects_outer = segments
+                                                    .iter()
+                                                    .any(|segment| segment.intersects(&new_edge));
+
+                                                let inner_u = to_f32(u)
+                                                    + 0.01 * (to_f32(w) - to_f32(u)).normalize();
+                                                let inner_w = to_f32(w)
+                                                    + 0.01 * (to_f32(u) - to_f32(w)).normalize();
+
+                                                let inner_u_intersections_polygon = segments
+                                                    .iter()
+                                                    .filter(|segment| {
+                                                        let segment_start = to_f32(segment.0);
+                                                        let segment_direction =
+                                                            to_f32(segment.1) - to_f32(segment.0);
+                                                        intersect(
+                                                            inner_u,
+                                                            Vector2::new(1000000.0, 0.0),
+                                                            segment_start,
+                                                            segment_direction,
+                                                        )
+                                                    })
+                                                    .collect::<Vec<_>>();
+
+                                                let inner_u_within_polygon =
+                                                    inner_u_intersections_polygon.len() % 2 == 1;
+
+                                                let inner_w_within_polygon = segments
+                                                    .iter()
+                                                    .filter(|segment| {
+                                                        let segment_start = to_f32(segment.0);
+                                                        let segment_direction =
+                                                            to_f32(segment.1) - to_f32(segment.0);
+                                                        intersect(
+                                                            inner_w,
+                                                            Vector2::new(1000000.0, 0.0),
+                                                            segment_start,
+                                                            segment_direction,
+                                                        )
+                                                    })
+                                                    .count()
+                                                    % 2
+                                                    == 1;
+                                                let within_polygon = inner_u_within_polygon
+                                                    && inner_w_within_polygon;
+
+                                                let triangle = [u, point, w];
+                                                let duplicate_triangle = triangles.iter().any(
+                                                    |&t: &[Point2<i32>; 3]| {
+                                                        let t_set: HashSet<Point2<i32>> =
+                                                            HashSet::from_iter(t.iter().cloned());
+
+                                                        t_set
+                                                            == HashSet::from_iter(
+                                                                triangle.iter().cloned(),
+                                                            )
+                                                    },
+                                                );
+
+                                                if !intersects_outer
+                                                    && !intersects_inner
+                                                    && within_polygon
+                                                    && !duplicate_triangle
+                                                {
+                                                    Some((triangle, new_edge))
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                            .collect::<Vec<_>>()
+                                    })
+                                    .flatten()
+                                    .next();
+
+                                if let Some((triangle, new_edge)) = triangle_and_edge {
+                                    let clockwise = triangle
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, &point)| {
+                                            let next = triangle[(i + 1) % triangle.len()];
+                                            (next.x - point.x) * (next.y + point.y)
+                                        })
+                                        .sum::<i32>()
+                                        >= 0;
+                                    let triangle = if clockwise {
+                                        [triangle[2], triangle[1], triangle[0]]
+                                    } else {
+                                        triangle
+                                    };
+                                    (
+                                        triangles
+                                            .into_iter()
+                                            .chain(vec![triangle])
+                                            .collect::<Vec<_>>(),
+                                        new_edges
+                                            .into_iter()
+                                            .chain(vec![new_edge])
+                                            .collect::<Vec<_>>(),
+                                    )
+                                } else {
+                                    (triangles, new_edges)
+                                }
+                            },
+                        );
+
+                        let triangles_combined: Vec<Point2<i32>> = triangles
+                            .into_iter()
+                            .map(|triangle| triangle.to_vec())
+                            .flatten()
+                            .collect::<Vec<_>>();
+                        triangles_combined
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        Map {
+            islands: islands_triangulated,
+        }
+    }
     pub fn into_vertices(&self) -> Vec<Position> {
         self.islands
             .iter()
