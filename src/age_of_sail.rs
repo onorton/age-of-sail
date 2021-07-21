@@ -93,7 +93,7 @@ fn initialise_player(world: &mut World) -> () {
     let sprite_render = SpriteRender::new(load_sprite_sheet(world), 1);
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(120.0, 50.0, 0.0);
+    transform.set_translation_xyz(150.0, 50.0, 0.0);
 
     world
         .create_entity()
@@ -117,7 +117,7 @@ fn initialise_pirates(world: &mut World) {
     let sprite_render = SpriteRender::new(load_sprite_sheet(world), 2);
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(300.0, 180.0, 0.0);
+    transform.set_translation_xyz(400.0, 180.0, 0.0);
 
     let chase_distance = 30;
 
@@ -158,7 +158,7 @@ fn initialise_pirates(world: &mut World) {
             previous_state_index: 0,
         })
         .with(Patrol {
-            waypoints: vec![Point2::new(250.0, 190.0), Point2::new(280.0, 160.0)],
+            waypoints: vec![Point2::new(350.0, 190.0), Point2::new(380.0, 160.0)],
             next_waypoint_index: 0,
         })
         .with(Cargo::default())
@@ -175,7 +175,7 @@ fn initialise_ports(world: &mut World) {
     let sprite_render = SpriteRender::new(load_sprite_sheet(world), 0);
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(120.0, 50.0, 0.0);
+    transform.set_translation_xyz(150.0, 50.0, 0.0);
 
     world
         .create_entity()
@@ -206,7 +206,7 @@ fn initialise_ports(world: &mut World) {
         .build();
 
     let mut transform = Transform::default();
-    transform.set_translation_xyz(150.0, 275.0, 0.0);
+    transform.set_translation_xyz(140.0, 275.0, 0.0);
     world
         .create_entity()
         .with(Port)
