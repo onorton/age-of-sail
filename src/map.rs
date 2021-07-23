@@ -271,14 +271,14 @@ impl Map {
             islands: islands_triangulated,
         }
     }
-    pub fn into_vertices(&self) -> Vec<Position> {
+    pub fn into_vertices(&self) -> Vec<Vec<Position>> {
         self.islands
             .iter()
-            .flat_map(|island| {
+            .map(|island| {
                 island
                     .iter()
                     .map(|&p| Position([p.x as f32, p.y as f32, 0.0]))
-                    .clone()
+                    .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>()
     }

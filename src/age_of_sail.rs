@@ -294,55 +294,55 @@ fn initialise_map(world: &mut World) {
     let map_data: Vec<Vec<Point2<i32>>> = ron::de::from_reader(map_data_reader).unwrap();
     let map = Map::new(map_data);
 
-    let map_vertices = map.into_vertices();
-    let num_map_vertices = map_vertices.len();
+    for island_vertices in map.into_vertices() {
+        let num_island_vertices = island_vertices.len();
+        let mesh = world.exec(|loader: AssetLoaderSystemData<Mesh>| {
+            loader.load_from_data(
+                amethyst::renderer::types::MeshData(
+                    (
+                        island_vertices,
+                        iter::repeat(TexCoord([0.0, 0.0]))
+                            .take(num_island_vertices)
+                            .collect::<Vec<_>>(),
+                    )
+                        .into(),
+                ),
+                (),
+            )
+        });
 
-    let mesh = world.exec(|loader: AssetLoaderSystemData<Mesh>| {
-        loader.load_from_data(
-            amethyst::renderer::types::MeshData(
-                (
-                    map_vertices,
-                    iter::repeat(TexCoord([0.0, 0.0]))
-                        .take(num_map_vertices)
-                        .collect::<Vec<_>>(),
-                )
-                    .into(),
-            ),
-            (),
-        )
-    });
+        let default_mat = world.read_resource::<MaterialDefaults>().0.clone();
 
-    let default_mat = world.read_resource::<MaterialDefaults>().0.clone();
+        let albedo = world.exec(|loader: AssetLoaderSystemData<Texture>| {
+            loader.load_from_data(
+                load_from_linear_rgba(LinSrgba::new(0.14, 0.6, 0.2, 1.0)).into(),
+                (),
+            )
+        });
 
-    let albedo = world.exec(|loader: AssetLoaderSystemData<Texture>| {
-        loader.load_from_data(
-            load_from_linear_rgba(LinSrgba::new(0.14, 0.6, 0.2, 1.0)).into(),
-            (),
-        )
-    });
+        let mat = world.exec(|loader: AssetLoaderSystemData<Material>| {
+            loader.load_from_data(
+                Material {
+                    albedo,
+                    ..default_mat.clone()
+                },
+                (),
+            )
+        });
 
-    let mat = world.exec(|loader: AssetLoaderSystemData<Material>| {
-        loader.load_from_data(
-            Material {
-                albedo,
-                ..default_mat.clone()
-            },
-            (),
-        )
-    });
+        let transform = Transform::default();
 
-    let transform = Transform::default();
-
-    world
-        .create_entity()
-        .with(mat)
-        .with(mesh)
-        .with(BoundingSphere {
-            center: Point3::origin(),
-            radius: 1000.0,
-        })
-        .with(transform)
-        .build();
+        world
+            .create_entity()
+            .with(mat)
+            .with(mesh)
+            .with(BoundingSphere {
+                center: Point3::origin(),
+                radius: 1000.0,
+            })
+            .with(transform)
+            .build();
+    }
 
     world.insert(map);
 }
