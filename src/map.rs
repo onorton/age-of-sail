@@ -1,12 +1,17 @@
-use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-
 use crate::graph::{Edge as GraphEdge, Graph};
 use amethyst::{
-    core::math::{distance, Point2, Vector2},
+    core::{
+        alga::linear::EuclideanSpace,
+        math::{distance, Point2, Vector2},
+    },
     renderer::rendy::mesh::Position,
 };
+use itertools::Itertools;
+use serde::Deserialize;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::iter::FromIterator;
+
+const COORDINATE_MAX: f32 = 10000.000;
 
 #[derive(Default, Debug, Deserialize)]
 pub struct Map {
@@ -26,10 +31,44 @@ impl Edge {
 
         intersect(self_start, self_direction, other_start, other_direction)
     }
+
+    fn order_by_y(&self) -> Edge {
+        if self.0.y > self.1.y {
+            Edge(self.0, self.1)
+        } else {
+            Edge(self.1, self.0)
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdgeF32(Point2<f32>, Point2<f32>);
+
+impl EdgeF32 {
+    fn intersects(&self, other: &EdgeF32) -> bool {
+        let self_direction = self.1 - self.0;
+        let self_start = self.0;
+
+        let other_direction = other.1 - other.0;
+        let other_start = other.0;
+
+        intersect_forgiving(self_start, self_direction, other_start, other_direction).is_some()
+    }
+
+    fn order_by_y(&self) -> EdgeF32 {
+        if self.0.y > self.1.y {
+            EdgeF32(self.0, self.1)
+        } else {
+            EdgeF32(self.1, self.0)
+        }
+    }
 }
 
 fn to_f32(point: Point2<i32>) -> Point2<f32> {
     Point2::new(point.x as f32, point.y as f32)
+}
+
+fn to_i32(point: Point2<f32>) -> Point2<i32> {
+    Point2::new(point.x.round() as i32, point.y.round() as i32)
 }
 
 fn intersect(
@@ -39,7 +78,6 @@ fn intersect(
     b_direction: Vector2<f32>,
 ) -> bool {
     let cross_of_directions = cross_2d(a_direction, b_direction);
-
     if cross_of_directions == 0.0 {
         // parallel
         if cross_2d(b_start - a_start, a_direction) == 0.0 {
@@ -60,10 +98,47 @@ fn intersect(
         {
             return false;
         }
-
         let t = cross_2d(b_start - a_start, b_direction / cross_of_directions);
         let u = cross_2d(b_start - a_start, a_direction / cross_of_directions);
         t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0
+    }
+}
+
+fn intersect_forgiving(
+    a_start: Point2<f32>,
+    a_direction: Vector2<f32>,
+    b_start: Point2<f32>,
+    b_direction: Vector2<f32>,
+) -> Option<Point2<f32>> {
+    let cross_of_directions = cross_2d(a_direction, b_direction);
+    let epsilon = 0.01;
+    if cross_of_directions == 0.0 {
+        // parallel
+        if cross_2d(b_start - a_start, a_direction) == 0.0 {
+            // colinear
+            let t_0 = (b_start - a_start).dot(&a_direction) / (a_direction.dot(&a_direction));
+            let t_1 = t_0 + b_direction.dot(&a_direction) / (a_direction.dot(&a_direction));
+
+            if (t_1 <= 1.0 + epsilon
+                && t_1 >= 0.0 - epsilon
+                && t_0 >= 0.0 - epsilon
+                && t_0 <= 1.0 + epsilon)
+            {
+                Some(a_start + t_0 * a_direction)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        let t = cross_2d(b_start - a_start, b_direction / cross_of_directions);
+        let u = cross_2d(b_start - a_start, a_direction / cross_of_directions);
+        if t >= 0.0 - epsilon && t <= 1.0 + epsilon && u >= 0.0 - epsilon && u <= 1.0 + epsilon {
+            Some(a_start + t * a_direction)
+        } else {
+            None
+        }
     }
 }
 
@@ -72,11 +147,217 @@ fn cross_2d(vector_1: Vector2<f32>, vector_2: Vector2<f32>) -> f32 {
 }
 
 fn on_line(point: Point2<f32>, line_start: Point2<f32>, line_direction: Vector2<f32>) -> bool {
+    if line_direction.magnitude() == 0.0 {
+        return point == line_start;
+    }
+
     let start_point_line = point - line_start;
     let cross = cross_2d(start_point_line, line_direction);
     let dot_product = start_point_line.dot(&line_direction);
     let line_distance_squared = line_direction.magnitude_squared();
-    cross == 0.0 && dot_product >= 0.0 && dot_product <= line_distance_squared
+    cross.abs() <= 0.02 && dot_product >= 0.0 && dot_product <= line_distance_squared
+}
+
+#[derive(Clone, Debug)]
+enum QueryNode {
+    X(EdgeF32, Box<QueryNode>, Box<QueryNode>),
+    Y(f32, Box<QueryNode>, Box<QueryNode>),
+    Trapezoid(usize),
+}
+
+impl QueryNode {
+    fn next(&self, point: Point2<i32>) -> &QueryNode {
+        match self {
+            QueryNode::X(e, left, right) => {
+                let dir = if e.0.y > e.1.y { e.0 - e.1 } else { e.1 - e.0 };
+                let cross = cross_2d(to_f32(point) - Point2::new(0.0, 0.0), dir);
+
+                if cross < 0.0 {
+                    (&**right).next(point)
+                } else {
+                    (&**left).next(point)
+                }
+            }
+            QueryNode::Y(y, above, below) => {
+                if point.y as f32 >= *y {
+                    (&**above).next(point)
+                } else {
+                    (&**below).next(point)
+                }
+            }
+            other => other,
+        }
+    }
+
+    fn insert_node(&mut self, original_trapezoid_index: usize, node: QueryNode) {
+        match self {
+            QueryNode::X(_, left, right) => {
+                let node_cloned = node.clone();
+                left.insert_node(original_trapezoid_index, node);
+                right.insert_node(original_trapezoid_index, node_cloned);
+            }
+            QueryNode::Y(_, above, below) => {
+                let node_cloned = node.clone();
+                above.insert_node(original_trapezoid_index, node);
+                below.insert_node(original_trapezoid_index, node_cloned);
+            }
+            QueryNode::Trapezoid(index) => {
+                if *index == original_trapezoid_index {
+                    *self = node;
+                }
+            }
+        };
+    }
+}
+
+#[derive(Debug)]
+struct QueryStructure {
+    root: QueryNode,
+}
+
+impl QueryStructure {
+    fn query(&self, point: Point2<i32>) -> usize {
+        if let QueryNode::Trapezoid(index) = self.root.next(point) {
+            *index
+        } else {
+            0
+        }
+    }
+
+    fn insert_y_node(
+        &mut self,
+        original_trapezoid_index: usize,
+        trapezoid_above_index: usize,
+        trapezoid_below_index: usize,
+        y: f32,
+    ) {
+        let new_node = QueryNode::Y(
+            y,
+            Box::new(QueryNode::Trapezoid(trapezoid_above_index)),
+            Box::new(QueryNode::Trapezoid(trapezoid_below_index)),
+        );
+
+        self.root.insert_node(original_trapezoid_index, new_node);
+    }
+
+    fn insert_x_node(
+        &mut self,
+        original_trapezoid_index: usize,
+        trapezoid_left_index: usize,
+        trapezoid_right_index: usize,
+        segment: EdgeF32,
+    ) {
+        let new_node = QueryNode::X(
+            segment,
+            Box::new(QueryNode::Trapezoid(trapezoid_left_index)),
+            Box::new(QueryNode::Trapezoid(trapezoid_right_index)),
+        );
+
+        self.root.insert_node(original_trapezoid_index, new_node);
+    }
+}
+
+// None means trapezoid extends infinitely to - or + inf
+#[derive(Clone, Debug)]
+struct Trapezoid {
+    left: EdgeF32,
+    right: EdgeF32,
+}
+
+impl Trapezoid {
+    fn split_vertically(&self, y: f32) -> (Trapezoid, Trapezoid) {
+        let left_top_first = self.left.order_by_y();
+        let right_top_first = self.right.order_by_y();
+
+        let diff = left_top_first.1 - left_top_first.0;
+        let proportion = (y - left_top_first.0.y) / diff.y;
+        let left_mid = left_top_first.0 + proportion * diff;
+
+        let diff = right_top_first.1 - right_top_first.0;
+        let proportion = (y - right_top_first.0.y) / diff.y;
+        let right_mid = right_top_first.0 + proportion * diff;
+
+        let above_left = EdgeF32(left_top_first.0, left_mid);
+        let above_right = EdgeF32(right_top_first.0, right_mid);
+        let below_left = EdgeF32(left_mid, left_top_first.1);
+        let below_right = EdgeF32(right_mid, right_top_first.1);
+        (
+            Trapezoid {
+                left: above_left,
+                right: above_right,
+            },
+            Trapezoid {
+                left: below_left,
+                right: below_right,
+            },
+        )
+    }
+
+    fn horizontal_edges(&self) -> [EdgeF32; 2] {
+        let left_top_first = self.left.order_by_y();
+        let right_top_first = self.right.order_by_y();
+
+        [
+            EdgeF32(left_top_first.0, right_top_first.0),
+            EdgeF32(left_top_first.1, right_top_first.1),
+        ]
+    }
+
+    fn vertices(&self) -> [Point2<f32>; 4] {
+        let horizontal_edges = self.horizontal_edges();
+        [
+            horizontal_edges[0].0,
+            horizontal_edges[0].1,
+            horizontal_edges[1].1,
+            horizontal_edges[1].0,
+        ]
+    }
+
+    // If it intersects a trapezoid, guaranteed to intersect both horizontal segments due to
+    // construction
+    fn segment_intersects_horizontal_edges(&self, segment: EdgeF32) -> bool {
+        let horizontal_edges = self.horizontal_edges();
+        let segment_intersects_edges = horizontal_edges
+            .iter()
+            .all(|edge| edge.intersects(&segment));
+        segment_intersects_edges
+    }
+
+    fn split_horizontally(&self, segment: EdgeF32) -> Option<(Trapezoid, Trapezoid)> {
+        if self.segment_intersects_horizontal_edges(segment) {
+            let horizontal_edges = self.horizontal_edges();
+            let segment_top_first = segment.order_by_y();
+            let segment_top = segment_top_first.0;
+            let segment_bottom = segment_top_first.1;
+
+            let segment_diff_y = segment_top.y - segment_bottom.y;
+
+            let top_edge_y = horizontal_edges[0].0.y;
+            let bottom_edge_y = horizontal_edges[1].0.y;
+
+            let diff_y_bottom_edge = bottom_edge_y - segment_bottom.y;
+            let diff_y_top_edge = top_edge_y - segment_bottom.y;
+
+            let segment_dir = segment_top - segment_bottom;
+
+            let segment_truncated = EdgeF32(
+                segment_bottom + (diff_y_top_edge / segment_diff_y) * segment_dir,
+                segment_bottom + (diff_y_bottom_edge / segment_diff_y) * segment_dir,
+            );
+
+            let left_trapezoid = Trapezoid {
+                left: self.left,
+                right: segment_truncated,
+            };
+            let right_trapezoid = Trapezoid {
+                left: segment_truncated,
+                right: self.right,
+            };
+            Some((left_trapezoid, right_trapezoid))
+        } else {
+            None
+        }
+    }
 }
 
 impl Map {
@@ -88,18 +369,249 @@ impl Map {
                     .iter()
                     .enumerate()
                     .map(|(index, &vertex)| Edge(vertex, island[(index + 1) % island.len()]))
-                    .collect::<Vec<_>>();
+                    .collect::<VecDeque<_>>();
 
+                // TODO: Use Point2<f32> for trapedoization and round back to Point2<i32>
                 // Trapezoidation and Convert into query structure
+
+                let mut trapezoids: HashMap<usize, Trapezoid> = [(
+                    0,
+                    Trapezoid {
+                        left: EdgeF32(
+                            Point2::new(-COORDINATE_MAX, COORDINATE_MAX),
+                            Point2::new(-COORDINATE_MAX, -COORDINATE_MAX),
+                        ),
+                        right: EdgeF32(
+                            Point2::new(COORDINATE_MAX, COORDINATE_MAX),
+                            Point2::new(COORDINATE_MAX, -COORDINATE_MAX),
+                        ),
+                    },
+                )]
+                .iter()
+                .cloned()
+                .collect();
+                let mut current_trapezoid_index = 1;
+
+                let mut query_structure = QueryStructure {
+                    root: QueryNode::Trapezoid(0),
+                };
+
+                let mut used_segments = VecDeque::<Edge>::new();
+
+                for segment in segments.iter() {
+                    let Edge(a, b) = segment.order_by_y();
+
+                    let a_already_in_segments = used_segments.iter().any(|s| s.0 == a || s.1 == a);
+
+                    if !a_already_in_segments {
+                        let trapezoid_a_index = query_structure.query(a);
+                        let trapezoid_a = trapezoids.get(&trapezoid_a_index).unwrap();
+                        let (trapezoid_above, trapezoid_below) =
+                            trapezoid_a.split_vertically(a.y as f32);
+                        let trapezoid_above_index = current_trapezoid_index;
+                        trapezoids.insert(trapezoid_above_index, trapezoid_above);
+                        current_trapezoid_index += 1;
+
+                        let trapezoid_below_index = current_trapezoid_index;
+                        trapezoids.insert(trapezoid_below_index, trapezoid_below);
+                        current_trapezoid_index += 1;
+
+                        trapezoids.remove(&trapezoid_a_index);
+
+                        query_structure.insert_y_node(
+                            trapezoid_a_index,
+                            trapezoid_above_index,
+                            trapezoid_below_index,
+                            a.y as f32,
+                        );
+                    }
+
+                    let b_already_in_segments = used_segments.iter().any(|s| s.0 == b || s.1 == b);
+
+                    if !b_already_in_segments {
+                        let trapezoid_b_index = query_structure.query(b);
+                        let trapezoid_b = trapezoids.get(&trapezoid_b_index).unwrap();
+                        let (trapezoid_above, trapezoid_below) =
+                            trapezoid_b.split_vertically(b.y as f32);
+
+                        let trapezoid_above_index = current_trapezoid_index;
+                        trapezoids.insert(trapezoid_above_index, trapezoid_above);
+                        current_trapezoid_index += 1;
+
+                        let trapezoid_below_index = current_trapezoid_index;
+                        trapezoids.insert(trapezoid_below_index, trapezoid_below);
+                        current_trapezoid_index += 1;
+
+                        trapezoids.remove(&trapezoid_b_index);
+
+                        query_structure.insert_y_node(
+                            trapezoid_b_index,
+                            trapezoid_above_index,
+                            trapezoid_below_index,
+                            b.y as f32,
+                        );
+                    }
+
+                    for (&trapezoid_index, trapezoid) in trapezoids.clone().iter() {
+                        if let Some((trapezoid_left, trapezoid_right)) = trapezoid
+                            .split_horizontally(EdgeF32(to_f32(segment.0), to_f32(segment.1)))
+                        {
+                            let trapezoid_left_index = current_trapezoid_index;
+                            trapezoids.insert(trapezoid_left_index, trapezoid_left);
+                            current_trapezoid_index += 1;
+
+                            let trapezoid_right_index = current_trapezoid_index;
+                            trapezoids.insert(trapezoid_right_index, trapezoid_right);
+                            current_trapezoid_index += 1;
+
+                            trapezoids.remove(&trapezoid_index);
+
+                            query_structure.insert_x_node(
+                                trapezoid_index,
+                                trapezoid_left_index,
+                                trapezoid_right_index,
+                                EdgeF32(to_f32(segment.0), to_f32(segment.1)),
+                            );
+                        }
+                    }
+
+                    used_segments.push_front(*segment);
+                }
 
                 // Decompose into monotone polygons
 
-                // Decompose into triangles (chain)
+                let trapezoids_in_polygon = trapezoids
+                    .iter()
+                    .map(|(_, trapezoid)| trapezoid)
+                    .filter(|trapezoid| {
+                        trapezoid.vertices().iter().all(|&v| {
+                            let crossings = segments
+                                .iter()
+                                .filter(|segment| {
+                                    let segment_start = to_f32(segment.0);
+                                    let segment_end = to_f32(segment.1);
+                                    let segment_direction = segment_end - segment_start;
+                                    let point = intersect_forgiving(
+                                        v,
+                                        Vector2::new(2.0 * COORDINATE_MAX, 0.0),
+                                        segment_start,
+                                        segment_direction,
+                                    );
+
+                                    if let Some(point) = point {
+                                        if point.distance(&segment_start) < 0.001 {
+                                            segment_end.y < segment_start.y
+                                        } else if point.distance(&segment_end) < 0.001 {
+                                            segment_start.y < segment_end.y
+                                        } else {
+                                            true
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                })
+                                .count();
+
+                            segments.iter().any(|segment| {
+                                let segment_start = to_f32(segment.0);
+                                let segment_end = to_f32(segment.1);
+                                let segment_direction = segment_end - segment_start;
+                                on_line(v, segment_start, segment_direction)
+                            }) || crossings % 2 == 1
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                let new_diagonals = trapezoids_in_polygon
+                    .iter()
+                    .filter_map(|trapezoid| {
+                        let vertices = trapezoid.vertices();
+                        // Edges are clockwise starting at top left
+                        let trapezoid_edges = vertices
+                            .iter()
+                            .enumerate()
+                            .map(|(index, &vertex)| {
+                                EdgeF32(vertex, vertices[(index + 1) % vertices.len()])
+                            })
+                            .collect::<Vec<_>>();
+
+                        let polygon_vertices_on_trapezoid_edges = island
+                            .iter()
+                            .map(|&v| {
+                                let trapezoid_edges_v_is_on = trapezoid_edges
+                                    .iter()
+                                    .filter(|edge| {
+                                        let segment_start = edge.0;
+                                        let segment_end = edge.1;
+                                        let segment_direction = segment_end - segment_start;
+                                        on_line(to_f32(v), segment_start, segment_direction)
+                                    })
+                                    .collect::<Vec<_>>();
+                                (to_f32(v), trapezoid_edges_v_is_on)
+                            })
+                            .filter(|(_, edges)| edges.len() > 0)
+                            .collect::<Vec<_>>();
+
+                        if polygon_vertices_on_trapezoid_edges.len() == 2 {
+                            let no_shared_trapezoid_edge = polygon_vertices_on_trapezoid_edges[0]
+                                .1
+                                .iter()
+                                .filter(|edge| {
+                                    polygon_vertices_on_trapezoid_edges[1]
+                                        .1
+                                        .iter()
+                                        .any(|other_edge| *edge == other_edge)
+                                })
+                                .count()
+                                == 0;
+
+                            if no_shared_trapezoid_edge {
+                                let first_point = polygon_vertices_on_trapezoid_edges[0].0;
+                                let second_point = polygon_vertices_on_trapezoid_edges[1].0;
+                                Some(Edge(to_i32(first_point), to_i32(second_point)))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                println!("New diagonals {:?}", new_diagonals);
+
                 let monotone_polygons: Vec<Vec<Point2<i32>>> = vec![island.to_vec()];
 
                 monotone_polygons
                     .into_iter()
                     .flat_map(|polygon| {
+                        let polygon_segments = island
+                            .iter()
+                            .enumerate()
+                            .map(|(index, &vertex)| {
+                                Edge(vertex, island[(index + 1) % island.len()])
+                            })
+                            .collect::<Vec<_>>();
+
+                        // Triangle, just return itself after making sure it's anticlockwise
+                        if polygon.len() == 3 {
+                            let clockwise = polygon
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &point)| {
+                                    let next = polygon[(i + 1) % polygon.len()];
+                                    (next.x - point.x) * (next.y + point.y)
+                                })
+                                .sum::<i32>()
+                                >= 0;
+
+                            return if clockwise {
+                                vec![polygon[2], polygon[1], polygon[0]]
+                            } else {
+                                polygon
+                            };
+                        }
+
                         let (triangles, _) = polygon.iter().enumerate().fold(
                             (vec![], vec![]),
                             |(triangles, new_edges), (i, &point)| {
@@ -151,7 +663,7 @@ impl Map {
                                                         new_edge.intersects(&other_edge)
                                                     });
 
-                                                let intersects_outer = segments
+                                                let intersects_outer = polygon_segments
                                                     .iter()
                                                     .any(|segment| segment.intersects(&new_edge));
 
@@ -160,25 +672,27 @@ impl Map {
                                                 let inner_w = to_f32(w)
                                                     + 0.01 * (to_f32(u) - to_f32(w)).normalize();
 
-                                                let inner_u_intersections_polygon = segments
-                                                    .iter()
-                                                    .filter(|segment| {
-                                                        let segment_start = to_f32(segment.0);
-                                                        let segment_direction =
-                                                            to_f32(segment.1) - to_f32(segment.0);
-                                                        intersect(
-                                                            inner_u,
-                                                            Vector2::new(1000000.0, 0.0),
-                                                            segment_start,
-                                                            segment_direction,
-                                                        )
-                                                    })
-                                                    .collect::<Vec<_>>();
+                                                let inner_u_intersections_polygon =
+                                                    polygon_segments
+                                                        .iter()
+                                                        .filter(|segment| {
+                                                            let segment_start = to_f32(segment.0);
+                                                            let segment_direction =
+                                                                to_f32(segment.1)
+                                                                    - to_f32(segment.0);
+                                                            intersect(
+                                                                inner_u,
+                                                                Vector2::new(COORDINATE_MAX, 0.0),
+                                                                segment_start,
+                                                                segment_direction,
+                                                            )
+                                                        })
+                                                        .collect::<Vec<_>>();
 
                                                 let inner_u_within_polygon =
                                                     inner_u_intersections_polygon.len() % 2 == 1;
 
-                                                let inner_w_within_polygon = segments
+                                                let inner_w_within_polygon = polygon_segments
                                                     .iter()
                                                     .filter(|segment| {
                                                         let segment_start = to_f32(segment.0);
@@ -186,7 +700,7 @@ impl Map {
                                                             to_f32(segment.1) - to_f32(segment.0);
                                                         intersect(
                                                             inner_w,
-                                                            Vector2::new(1000000.0, 0.0),
+                                                            Vector2::new(COORDINATE_MAX, 0.0),
                                                             segment_start,
                                                             segment_direction,
                                                         )
@@ -283,6 +797,7 @@ impl Map {
             .collect::<Vec<_>>()
     }
 
+    // TODO: Replace with just saving the input
     fn outer_edges(&self) -> Vec<Edge> {
         self.islands
             .iter()
@@ -322,6 +837,7 @@ impl Map {
             .collect::<Vec<Edge>>()
     }
 
+    // TODO: Replace with just saving the input
     fn corners_and_edges(&self) -> (Vec<Point2<f32>>, Vec<GraphEdge>) {
         let outer_edges = self.outer_edges();
 
