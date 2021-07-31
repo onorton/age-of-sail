@@ -478,8 +478,6 @@ impl Map {
                     used_segments.push_front(*segment);
                 }
 
-                // Decompose into monotone polygons
-
                 let trapezoids_in_polygon = trapezoids
                     .iter()
                     .map(|(_, trapezoid)| trapezoid)
@@ -522,6 +520,7 @@ impl Map {
                     })
                     .collect::<Vec<_>>();
 
+                // Decompose into monotone polygons
                 let new_diagonals = trapezoids_in_polygon
                     .iter()
                     .filter_map(|trapezoid| {
@@ -580,7 +579,47 @@ impl Map {
 
                 println!("New diagonals {:?}", new_diagonals);
 
-                let monotone_polygons: Vec<Vec<Point2<i32>>> = vec![island.to_vec()];
+                let mut monotone_polygons: Vec<Vec<Point2<i32>>> = vec![island.to_vec()];
+                // Split polygons with the new diagonal
+                for diagonal in new_diagonals {
+                    monotone_polygons = monotone_polygons
+                        .into_iter()
+                        .flat_map(|polygon| {
+                            let diagonal_start = diagonal.0;
+                            let diagonal_end = diagonal.1;
+                            let polygon_contains_start =
+                                polygon.iter().any(|&v| v == diagonal_start);
+                            let polygon_contains_end = polygon.iter().any(|&v| v == diagonal_end);
+                            if polygon_contains_start && polygon_contains_end {
+                                let diagonal_start_index =
+                                    polygon.iter().position(|&v| v == diagonal_start).unwrap();
+                                let mut polygon_from_going_forwards = vec![];
+                                for i in 0..polygon.len() {
+                                    let new_vertex =
+                                        polygon[(diagonal_start_index + i) % polygon.len()];
+                                    polygon_from_going_forwards.push(new_vertex);
+                                    if new_vertex == diagonal_end {
+                                        break;
+                                    }
+                                }
+
+                                let mut polygon_from_going_backwards = vec![];
+                                for i in 0..polygon.len() {
+                                    let new_vertex =
+                                        polygon[(diagonal_start_index + polygon.len() - i)
+                                            % polygon.len()];
+                                    polygon_from_going_backwards.push(new_vertex);
+                                    if new_vertex == diagonal_end {
+                                        break;
+                                    }
+                                }
+                                vec![polygon_from_going_forwards, polygon_from_going_backwards]
+                            } else {
+                                vec![polygon]
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                }
 
                 monotone_polygons
                     .into_iter()
