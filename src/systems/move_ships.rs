@@ -338,9 +338,8 @@ mod tests {
 
         AmethystApplication::blank()
             .with_setup(|world| {
-                world.insert(Map{
-                    islands: vec![vec![Point2::new(50, 0), Point2::new(100, 75), Point2::new(100, -25)]]
-                })
+                world.insert(Map::new(vec![vec![Point2::new(50, 0), Point2::new(100, 75), Point2::new(100, -25)]]
+                ))
             })
             .with_system(MoveShipsSystem, "move_ships", &[])
             .with_effect(move |world| {
@@ -372,9 +371,8 @@ mod tests {
 
         AmethystApplication::blank()
             .with_setup(|world| {
-                world.insert(Map{
-                    islands: vec![vec![Point2::new(50, 0), Point2::new(100, 75), Point2::new(100, -25)]]
-                })
+                world.insert(Map::new(vec![vec![Point2::new(50, 0), Point2::new(100, 75), Point2::new(100, -25)]]
+                ))
             })
             .with_system(MoveShipsSystem, "move_ships", &[])
             .with_effect(move |world| {

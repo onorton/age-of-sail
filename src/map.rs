@@ -6,7 +6,6 @@ use amethyst::{
     },
     renderer::rendy::mesh::Position,
 };
-use itertools::Itertools;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter::FromIterator;
@@ -16,9 +15,10 @@ const COORDINATE_MAX: f32 = 10000.000;
 #[derive(Default, Debug, Deserialize)]
 pub struct Map {
     pub islands: Vec<Vec<Point2<i32>>>,
+    triangulated_islands: Vec<Vec<Point2<i32>>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Edge(Point2<i32>, Point2<i32>);
 
 impl Edge {
@@ -67,10 +67,23 @@ fn to_f32(point: Point2<i32>) -> Point2<f32> {
     Point2::new(point.x as f32, point.y as f32)
 }
 
-fn to_i32(point: Point2<f32>) -> Point2<i32> {
-    Point2::new(point.x.round() as i32, point.y.round() as i32)
-}
+fn ensure_anticlockwise(polygon: Vec<Point2<i32>>) -> Vec<Point2<i32>> {
+    let clockwise = polygon
+        .iter()
+        .enumerate()
+        .map(|(i, &point)| {
+            let next = polygon[(i + 1) % polygon.len()];
+            (next.x - point.x) * (next.y + point.y)
+        })
+        .sum::<i32>()
+        >= 0;
 
+    if clockwise {
+        polygon.into_iter().rev().collect::<Vec<_>>()
+    } else {
+        polygon
+    }
+}
 fn intersect(
     a_start: Point2<f32>,
     a_direction: Vector2<f32>,
@@ -119,10 +132,10 @@ fn intersect_forgiving(
             let t_0 = (b_start - a_start).dot(&a_direction) / (a_direction.dot(&a_direction));
             let t_1 = t_0 + b_direction.dot(&a_direction) / (a_direction.dot(&a_direction));
 
-            if (t_1 <= 1.0 + epsilon
+            if t_1 <= 1.0 + epsilon
                 && t_1 >= 0.0 - epsilon
                 && t_0 >= 0.0 - epsilon
-                && t_0 <= 1.0 + epsilon)
+                && t_0 <= 1.0 + epsilon
             {
                 Some(a_start + t_0 * a_direction)
             } else {
@@ -269,18 +282,20 @@ impl Trapezoid {
         let left_top_first = self.left.order_by_y();
         let right_top_first = self.right.order_by_y();
 
-        let diff = left_top_first.1 - left_top_first.0;
-        let proportion = (y - left_top_first.0.y) / diff.y;
-        let left_mid = left_top_first.0 + proportion * diff;
+        let point_on_edge_with_y = |edge: EdgeF32| {
+            let edge = edge.order_by_y();
+            let diff = edge.1 - edge.0;
+            let proportion = (y - edge.0.y) / diff.y;
+            edge.0 + proportion * diff
+        };
 
-        let diff = right_top_first.1 - right_top_first.0;
-        let proportion = (y - right_top_first.0.y) / diff.y;
-        let right_mid = right_top_first.0 + proportion * diff;
+        let left_point = point_on_edge_with_y(left_top_first);
+        let right_point = point_on_edge_with_y(right_top_first);
 
-        let above_left = EdgeF32(left_top_first.0, left_mid);
-        let above_right = EdgeF32(right_top_first.0, right_mid);
-        let below_left = EdgeF32(left_mid, left_top_first.1);
-        let below_right = EdgeF32(right_mid, right_top_first.1);
+        let above_left = EdgeF32(left_top_first.0, left_point);
+        let above_right = EdgeF32(right_top_first.0, right_point);
+        let below_left = EdgeF32(left_point, left_top_first.1);
+        let below_right = EdgeF32(right_point, right_top_first.1);
         (
             Trapezoid {
                 left: above_left,
@@ -371,9 +386,6 @@ impl Map {
                     .map(|(index, &vertex)| Edge(vertex, island[(index + 1) % island.len()]))
                     .collect::<VecDeque<_>>();
 
-                // TODO: Use Point2<f32> for trapedoization and round back to Point2<i32>
-                // Trapezoidation and Convert into query structure
-
                 let mut trapezoids: HashMap<usize, Trapezoid> = [(
                     0,
                     Trapezoid {
@@ -390,6 +402,7 @@ impl Map {
                 .iter()
                 .cloned()
                 .collect();
+
                 let mut current_trapezoid_index = 1;
 
                 let mut query_structure = QueryStructure {
@@ -401,55 +414,35 @@ impl Map {
                 for segment in segments.iter() {
                     let Edge(a, b) = segment.order_by_y();
 
-                    let a_already_in_segments = used_segments.iter().any(|s| s.0 == a || s.1 == a);
+                    let new_vertices = vec![a, b];
 
-                    if !a_already_in_segments {
-                        let trapezoid_a_index = query_structure.query(a);
-                        let trapezoid_a = trapezoids.get(&trapezoid_a_index).unwrap();
-                        let (trapezoid_above, trapezoid_below) =
-                            trapezoid_a.split_vertically(a.y as f32);
-                        let trapezoid_above_index = current_trapezoid_index;
-                        trapezoids.insert(trapezoid_above_index, trapezoid_above);
-                        current_trapezoid_index += 1;
+                    for vertex in new_vertices {
+                        let vertex_already_in_segments =
+                            used_segments.iter().any(|s| s.0 == vertex || s.1 == vertex);
 
-                        let trapezoid_below_index = current_trapezoid_index;
-                        trapezoids.insert(trapezoid_below_index, trapezoid_below);
-                        current_trapezoid_index += 1;
+                        if !vertex_already_in_segments {
+                            let trapezoid_at_vertex_index = query_structure.query(vertex);
+                            let trapezoid_at_vertex =
+                                trapezoids.get(&trapezoid_at_vertex_index).unwrap();
+                            let (trapezoid_above, trapezoid_below) =
+                                trapezoid_at_vertex.split_vertically(vertex.y as f32);
+                            let trapezoid_above_index = current_trapezoid_index;
+                            trapezoids.insert(trapezoid_above_index, trapezoid_above);
+                            current_trapezoid_index += 1;
 
-                        trapezoids.remove(&trapezoid_a_index);
+                            let trapezoid_below_index = current_trapezoid_index;
+                            trapezoids.insert(trapezoid_below_index, trapezoid_below);
+                            current_trapezoid_index += 1;
 
-                        query_structure.insert_y_node(
-                            trapezoid_a_index,
-                            trapezoid_above_index,
-                            trapezoid_below_index,
-                            a.y as f32,
-                        );
-                    }
+                            trapezoids.remove(&trapezoid_at_vertex_index);
 
-                    let b_already_in_segments = used_segments.iter().any(|s| s.0 == b || s.1 == b);
-
-                    if !b_already_in_segments {
-                        let trapezoid_b_index = query_structure.query(b);
-                        let trapezoid_b = trapezoids.get(&trapezoid_b_index).unwrap();
-                        let (trapezoid_above, trapezoid_below) =
-                            trapezoid_b.split_vertically(b.y as f32);
-
-                        let trapezoid_above_index = current_trapezoid_index;
-                        trapezoids.insert(trapezoid_above_index, trapezoid_above);
-                        current_trapezoid_index += 1;
-
-                        let trapezoid_below_index = current_trapezoid_index;
-                        trapezoids.insert(trapezoid_below_index, trapezoid_below);
-                        current_trapezoid_index += 1;
-
-                        trapezoids.remove(&trapezoid_b_index);
-
-                        query_structure.insert_y_node(
-                            trapezoid_b_index,
-                            trapezoid_above_index,
-                            trapezoid_below_index,
-                            b.y as f32,
-                        );
+                            query_structure.insert_y_node(
+                                trapezoid_at_vertex_index,
+                                trapezoid_above_index,
+                                trapezoid_below_index,
+                                vertex.y as f32,
+                            );
+                        }
                     }
 
                     for (&trapezoid_index, trapezoid) in trapezoids.clone().iter() {
@@ -525,7 +518,7 @@ impl Map {
                     .iter()
                     .filter_map(|trapezoid| {
                         let vertices = trapezoid.vertices();
-                        // Edges are clockwise starting at top left
+
                         let trapezoid_edges = vertices
                             .iter()
                             .enumerate()
@@ -546,7 +539,7 @@ impl Map {
                                         on_line(to_f32(v), segment_start, segment_direction)
                                     })
                                     .collect::<Vec<_>>();
-                                (to_f32(v), trapezoid_edges_v_is_on)
+                                (v, trapezoid_edges_v_is_on)
                             })
                             .filter(|(_, edges)| edges.len() > 0)
                             .collect::<Vec<_>>();
@@ -567,7 +560,7 @@ impl Map {
                             if no_shared_trapezoid_edge {
                                 let first_point = polygon_vertices_on_trapezoid_edges[0].0;
                                 let second_point = polygon_vertices_on_trapezoid_edges[1].0;
-                                Some(Edge(to_i32(first_point), to_i32(second_point)))
+                                Some(Edge(first_point, second_point))
                             } else {
                                 None
                             }
@@ -577,10 +570,9 @@ impl Map {
                     })
                     .collect::<Vec<_>>();
 
-                println!("New diagonals {:?}", new_diagonals);
-
                 let mut monotone_polygons: Vec<Vec<Point2<i32>>> = vec![island.to_vec()];
-                // Split polygons with the new diagonal
+
+                // Split polygons with the new diagonals
                 for diagonal in new_diagonals {
                     monotone_polygons = monotone_polygons
                         .into_iter()
@@ -634,21 +626,7 @@ impl Map {
 
                         // Triangle, just return itself after making sure it's anticlockwise
                         if polygon.len() == 3 {
-                            let clockwise = polygon
-                                .iter()
-                                .enumerate()
-                                .map(|(i, &point)| {
-                                    let next = polygon[(i + 1) % polygon.len()];
-                                    (next.x - point.x) * (next.y + point.y)
-                                })
-                                .sum::<i32>()
-                                >= 0;
-
-                            return if clockwise {
-                                vec![polygon[2], polygon[1], polygon[0]]
-                            } else {
-                                polygon
-                            };
+                            return ensure_anticlockwise(polygon);
                         }
 
                         let (triangles, _) = polygon.iter().enumerate().fold(
@@ -779,20 +757,15 @@ impl Map {
                                     .next();
 
                                 if let Some((triangle, new_edge)) = triangle_and_edge {
-                                    let clockwise = triangle
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(i, &point)| {
-                                            let next = triangle[(i + 1) % triangle.len()];
-                                            (next.x - point.x) * (next.y + point.y)
-                                        })
-                                        .sum::<i32>()
-                                        >= 0;
-                                    let triangle = if clockwise {
-                                        [triangle[2], triangle[1], triangle[0]]
-                                    } else {
+                                    let triangle = ensure_anticlockwise(
                                         triangle
-                                    };
+                                            .iter()
+                                            .map(|vertex| *vertex)
+                                            .collect::<Vec<Point2<i32>>>(),
+                                    );
+
+                                    let triangle = [triangle[0], triangle[1], triangle[2]];
+
                                     (
                                         triangles
                                             .into_iter()
@@ -821,11 +794,12 @@ impl Map {
             .collect::<Vec<_>>();
 
         Map {
-            islands: islands_triangulated,
+            islands,
+            triangulated_islands: islands_triangulated,
         }
     }
     pub fn into_vertices(&self) -> Vec<Vec<Position>> {
-        self.islands
+        self.triangulated_islands
             .iter()
             .map(|island| {
                 island
@@ -836,41 +810,14 @@ impl Map {
             .collect::<Vec<_>>()
     }
 
-    // TODO: Replace with just saving the input
     fn outer_edges(&self) -> Vec<Edge> {
         self.islands
             .iter()
             .flat_map(|island| {
-                let island_edges = island.chunks(3).flat_map(|triangle| {
-                    vec![
-                        Edge(triangle[0], triangle[1]),
-                        Edge(triangle[1], triangle[2]),
-                        Edge(triangle[2], triangle[0]),
-                    ]
-                });
-
-                let mut island_outer_edges = HashMap::<Edge, usize>::new();
-                for island_edge in island_edges {
-                    let reverse_island_edge = Edge(island_edge.1, island_edge.0);
-
-                    // Check both orders of points
-                    let edge_count = island_outer_edges.get(&island_edge).map_or(0, |v| *v);
-                    let reverse_edge_count = island_outer_edges
-                        .get(&reverse_island_edge)
-                        .map_or(0, |v| *v);
-
-                    if edge_count > 0 {
-                        island_outer_edges.insert(island_edge, edge_count + 1);
-                    } else if reverse_edge_count > 0 {
-                        island_outer_edges.insert(reverse_island_edge, reverse_edge_count + 1);
-                    } else {
-                        island_outer_edges.insert(island_edge, 1);
-                    }
-                }
-                island_outer_edges
+                island
                     .iter()
-                    .filter(|(_, &count)| count == 1)
-                    .map(|(edge, _)| *edge)
+                    .enumerate()
+                    .map(|(index, &vertex)| Edge(vertex, island[(index + 1) % island.len()]))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<Edge>>()
@@ -880,14 +827,13 @@ impl Map {
     fn corners_and_edges(&self) -> (Vec<Point2<f32>>, Vec<GraphEdge>) {
         let outer_edges = self.outer_edges();
 
-        let mut corners = HashSet::new();
+        let corners = self
+            .islands
+            .iter()
+            .flat_map(|island| island)
+            .map(|&c| c)
+            .collect::<Vec<_>>();
 
-        for outer_edge in &outer_edges {
-            corners.insert(outer_edge.0);
-            corners.insert(outer_edge.1);
-        }
-
-        let corners = corners.iter().map(|&c| c).collect::<Vec<_>>();
         let edges = outer_edges
             .iter()
             .map(|edge| {
@@ -928,7 +874,7 @@ impl Map {
     }
 
     pub fn on_land(&self, point: Point2<f32>) -> bool {
-        self.islands.iter().any(|island| {
+        self.triangulated_islands.iter().any(|island| {
             island.chunks(3).any(|triangle| {
                 let a = to_f32(triangle[0]);
                 let b = to_f32(triangle[1]);
@@ -1109,26 +1055,22 @@ mod tests {
     use test_case::test_case;
 
     #[test]
-    fn into_vertices_produces_conserves_number_of_triangles_specified() {
-        let map = Map {
-            islands: vec![
-                vec![
-                    Point2::new(50, 100),
-                    Point2::new(100, 125),
-                    Point2::new(100, 75),
-                ],
-                vec![
-                    Point2::new(50, 0),
-                    Point2::new(100, 25),
-                    Point2::new(100, -25),
-                    Point2::new(100, -25),
-                    Point2::new(100, 25),
-                    Point2::new(150, 0),
-                ],
+    fn into_vertices_conserves_number_of_islands() {
+        let map = Map::new(vec![
+            vec![
+                Point2::new(50, 100),
+                Point2::new(100, 125),
+                Point2::new(100, 75),
             ],
-        };
-        let vertices = map.into_vertices();
-        assert_eq!(9, vertices.len(), "number of vertices");
+            vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(150, 1),
+                Point2::new(100, -25),
+            ],
+        ]);
+        let islands_as_vertices = map.into_vertices();
+        assert_eq!(2, islands_as_vertices.len(), "number of islands");
     }
 
     #[test_case(Point2::new(0.0, 0.0) => false ; "outside of land")]
@@ -1137,23 +1079,19 @@ mod tests {
     #[test_case(Point2::new(50.0, 0.0) => true ; "on corner")]
     #[test_case(Point2::new(52.0, 101.0) => true ; "on edge")]
     fn on_land_returns_true_if_point_on_any_triangle(point: Point2<f32>) -> bool {
-        let map = Map {
-            islands: vec![
-                vec![
-                    Point2::new(50, 100),
-                    Point2::new(100, 125),
-                    Point2::new(100, 75),
-                ],
-                vec![
-                    Point2::new(50, 0),
-                    Point2::new(100, 25),
-                    Point2::new(100, -25),
-                    Point2::new(100, -25),
-                    Point2::new(100, 25),
-                    Point2::new(150, 0),
-                ],
+        let map = Map::new(vec![
+            vec![
+                Point2::new(50, 100),
+                Point2::new(100, 125),
+                Point2::new(100, 75),
             ],
-        };
+            vec![
+                Point2::new(50, 0),
+                Point2::new(100, 25),
+                Point2::new(150, 1),
+                Point2::new(100, -25),
+            ],
+        ]);
         map.on_land(point)
     }
 
@@ -1164,16 +1102,12 @@ mod tests {
         point: Point2<f32>,
         unadjusted_point_on_edge: Point2<f32>,
     ) {
-        let map = Map {
-            islands: vec![vec![
-                Point2::new(50, 0),
-                Point2::new(100, 25),
-                Point2::new(100, -25),
-                Point2::new(100, -25),
-                Point2::new(100, 25),
-                Point2::new(150, 0),
-            ]],
-        };
+        let map = Map::new(vec![vec![
+            Point2::new(50, 0),
+            Point2::new(100, 25),
+            Point2::new(150, 1),
+            Point2::new(100, -25),
+        ]]);
         let closest_point = map.closest_point_on_edge(point);
         assert!(
             closest_point.distance(&unadjusted_point_on_edge) < 1.0,
@@ -1185,35 +1119,29 @@ mod tests {
     #[test_case(Point2::new(0.0, 0.0), Vector2::new(40.0, 1.0), false => Some(Point2::new(52.63158, 1.3157893)) ; "line outside of land but passing through and not strict")]
     #[test_case(Point2::new(0.0, 0.0), Vector2::new(0.0, 10.0), false => None ; "line outside of land not passing through and not strict")]
     #[test_case(Point2::new(0.0, 0.0), Vector2::new(40.0, 1.0), false => Some(Point2::new(52.63158, 1.3157893)) ; "line outside of land and not strict")]
-    #[test_case(Point2::new(60.0, 2.5), Vector2::new(100.0, 0.0), true => Some(Point2::new(145.0, 2.5)) ; "starting point inside land, closest point behind and strict")]
+    #[test_case(Point2::new(60.0, 1.0), Vector2::new(100.0, 0.0), true => Some(Point2::new(150.0, 1.0)) ; "starting point inside land, closest point behind and strict")]
     #[test_case(Point2::new(60.0, 3.0), Vector2::new(100.0, 0.0), false => Some(Point2::new(56.0, 3.0)) ; "starting point inside land, closest point behind and not strict")]
     fn closest_point_of_line_on_edge_finds_point_on_outer_edge_if_it_exists(
         starting_point: Point2<f32>,
         line_direction: Vector2<f32>,
         strict: bool,
     ) -> Option<Point2<f32>> {
-        let map = Map {
-            islands: vec![vec![
-                Point2::new(50, 0),
-                Point2::new(100, 25),
-                Point2::new(100, -25),
-                Point2::new(100, -25),
-                Point2::new(100, 25),
-                Point2::new(150, 0),
-            ]],
-        };
+        let map = Map::new(vec![vec![
+            Point2::new(50, 0),
+            Point2::new(100, 25),
+            Point2::new(150, 1),
+            Point2::new(100, -25),
+        ]]);
         map.closest_point_of_line_on_edge(starting_point, line_direction, strict)
     }
 
     #[test]
     fn nodes_and_edges_connected_does_not_returns_edges_for_points_that_cannot_directly_connect() {
-        let map = Map {
-            islands: vec![vec![
-                Point2::new(50, 0),
-                Point2::new(100, 25),
-                Point2::new(100, -25),
-            ]],
-        };
+        let map = Map::new(vec![vec![
+            Point2::new(50, 0),
+            Point2::new(100, 25),
+            Point2::new(100, -25),
+        ]]);
 
         let graph =
             map.nodes_and_edges_connected(vec![Point2::new(0.0, 0.0), Point2::new(120.0, 0.0)]);
@@ -1236,13 +1164,11 @@ mod tests {
 
     #[test]
     fn nodes_and_edges_connected_returns_edges_for_every_point_that_connects_to_a_corner() {
-        let map = Map {
-            islands: vec![vec![
-                Point2::new(50, 0),
-                Point2::new(100, 25),
-                Point2::new(100, -25),
-            ]],
-        };
+        let map = Map::new(vec![vec![
+            Point2::new(50, 0),
+            Point2::new(100, 25),
+            Point2::new(100, -25),
+        ]]);
 
         let graph =
             map.nodes_and_edges_connected(vec![Point2::new(0.0, 0.0), Point2::new(120.0, 0.0)]);
@@ -1269,13 +1195,11 @@ mod tests {
 
     #[test]
     fn nodes_and_edges_connected_adds_all_new_points_to_graph() {
-        let map = Map {
-            islands: vec![vec![
-                Point2::new(50, 0),
-                Point2::new(100, 25),
-                Point2::new(100, -25),
-            ]],
-        };
+        let map = Map::new(vec![vec![
+            Point2::new(50, 0),
+            Point2::new(100, 25),
+            Point2::new(100, -25),
+        ]]);
 
         let graph = map.nodes_and_edges_connected(vec![
             Point2::new(0.0, 0.0),
@@ -1287,16 +1211,12 @@ mod tests {
 
     #[test]
     fn nodes_and_edges_connected_only_includes_corners_and_outer_edges_of_land() {
-        let map = Map {
-            islands: vec![vec![
-                Point2::new(50, 0),
-                Point2::new(100, 25),
-                Point2::new(100, -25),
-                Point2::new(100, -25),
-                Point2::new(100, 25),
-                Point2::new(150, 0),
-            ]],
-        };
+        let map = Map::new(vec![vec![
+            Point2::new(50, 0),
+            Point2::new(100, 25),
+            Point2::new(150, 1),
+            Point2::new(100, -25),
+        ]]);
 
         let graph = map.nodes_and_edges_connected(vec![]);
         assert_eq!(4, graph.nodes.len(), "Graph nodes");
