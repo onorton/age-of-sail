@@ -15,7 +15,7 @@ const COORDINATE_MAX: f32 = 10000.000;
 #[derive(Default, Debug, Deserialize)]
 pub struct Map {
     pub islands: Vec<Vec<Point2<i32>>>,
-    triangulated_islands: Vec<Vec<Point2<i32>>>,
+    triangulated_islands: Vec<Vec<Point2<f32>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -104,6 +104,7 @@ fn intersect(
         }
     } else {
         // not parallel
+        // TODO: Where do we need this?
         if a_start == b_start
             || a_start == (b_start + b_direction)
             || (a_start + a_direction) == b_start
@@ -585,6 +586,7 @@ impl Map {
                             if polygon_contains_start && polygon_contains_end {
                                 let diagonal_start_index =
                                     polygon.iter().position(|&v| v == diagonal_start).unwrap();
+
                                 let mut polygon_from_going_forwards = vec![];
                                 for i in 0..polygon.len() {
                                     let new_vertex =
@@ -667,14 +669,13 @@ impl Map {
 
                                                 let new_edge = Edge(u, w);
 
-                                                // Don't include itself
+                                                // Don't include itself if it is an inner edge
                                                 let intersects_inner = new_edges
                                                     .iter()
-                                                    .filter(|&other_edge| {
-                                                        (new_edge.0 != other_edge.0
-                                                            && new_edge.1 != other_edge.1)
-                                                            && (new_edge.0 != other_edge.1
-                                                                && new_edge.1 != other_edge.0)
+                                                    .filter(|&&other_edge| {
+                                                        new_edge != other_edge
+                                                            && new_edge
+                                                                != Edge(other_edge.1, other_edge.0)
                                                     })
                                                     .any(|&other_edge| {
                                                         new_edge.intersects(&other_edge)
@@ -684,13 +685,22 @@ impl Map {
                                                     .iter()
                                                     .any(|segment| segment.intersects(&new_edge));
 
+                                                // Check line is within polygon by checking near
+                                                // endpoints
+                                                // This works as both start and end are points on
+                                                // the polygon
+
                                                 let inner_u = to_f32(u)
                                                     + 0.01 * (to_f32(w) - to_f32(u)).normalize();
                                                 let inner_w = to_f32(w)
                                                     + 0.01 * (to_f32(u) - to_f32(w)).normalize();
 
-                                                let inner_u_intersections_polygon =
-                                                    polygon_segments
+                                                fn check_point_within_polygon(
+                                                    point: Point2<f32>,
+                                                    polygon_edges: &Vec<Edge>,
+                                                ) -> bool
+                                                {
+                                                    polygon_edges
                                                         .iter()
                                                         .filter(|segment| {
                                                             let segment_start = to_f32(segment.0);
@@ -698,33 +708,28 @@ impl Map {
                                                                 to_f32(segment.1)
                                                                     - to_f32(segment.0);
                                                             intersect(
-                                                                inner_u,
+                                                                point,
                                                                 Vector2::new(COORDINATE_MAX, 0.0),
                                                                 segment_start,
                                                                 segment_direction,
                                                             )
                                                         })
-                                                        .collect::<Vec<_>>();
+                                                        .count()
+                                                        % 2
+                                                        == 1
+                                                }
 
                                                 let inner_u_within_polygon =
-                                                    inner_u_intersections_polygon.len() % 2 == 1;
+                                                    check_point_within_polygon(
+                                                        inner_u,
+                                                        &polygon_segments,
+                                                    );
+                                                let inner_w_within_polygon =
+                                                    check_point_within_polygon(
+                                                        inner_w,
+                                                        &polygon_segments,
+                                                    );
 
-                                                let inner_w_within_polygon = polygon_segments
-                                                    .iter()
-                                                    .filter(|segment| {
-                                                        let segment_start = to_f32(segment.0);
-                                                        let segment_direction =
-                                                            to_f32(segment.1) - to_f32(segment.0);
-                                                        intersect(
-                                                            inner_w,
-                                                            Vector2::new(COORDINATE_MAX, 0.0),
-                                                            segment_start,
-                                                            segment_direction,
-                                                        )
-                                                    })
-                                                    .count()
-                                                    % 2
-                                                    == 1;
                                                 let within_polygon = inner_u_within_polygon
                                                     && inner_w_within_polygon;
 
@@ -795,7 +800,10 @@ impl Map {
 
         Map {
             islands,
-            triangulated_islands: islands_triangulated,
+            triangulated_islands: islands_triangulated
+                .iter()
+                .map(|island| island.iter().map(|&v| to_f32(v)).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
         }
     }
     pub fn into_vertices(&self) -> Vec<Vec<Position>> {
@@ -804,7 +812,7 @@ impl Map {
             .map(|island| {
                 island
                     .iter()
-                    .map(|&p| Position([p.x as f32, p.y as f32, 0.0]))
+                    .map(|&p| Position([p.x, p.y, 0.0]))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>()
@@ -823,7 +831,6 @@ impl Map {
             .collect::<Vec<Edge>>()
     }
 
-    // TODO: Replace with just saving the input
     fn corners_and_edges(&self) -> (Vec<Point2<f32>>, Vec<GraphEdge>) {
         let outer_edges = self.outer_edges();
 
@@ -855,6 +862,8 @@ impl Map {
                         if e.0 == corner_index {
                             Some(*e)
                         } else if e.1 == corner_index {
+                            // Other edge that corner is on, flip so that the corner is the first
+                            // element
                             Some(GraphEdge(e.1, e.0))
                         } else {
                             None
@@ -876,9 +885,9 @@ impl Map {
     pub fn on_land(&self, point: Point2<f32>) -> bool {
         self.triangulated_islands.iter().any(|island| {
             island.chunks(3).any(|triangle| {
-                let a = to_f32(triangle[0]);
-                let b = to_f32(triangle[1]);
-                let c = to_f32(triangle[2]);
+                let a = triangle[0];
+                let b = triangle[1];
+                let c = triangle[2];
                 let a_b = b - a;
                 let b_c = c - b;
                 let c_a = a - c;
